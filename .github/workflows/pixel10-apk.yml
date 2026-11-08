@@ -1,0 +1,126 @@
+name: Build Pixel 10 GTA IV APK (experimental)
+
+on:
+  push:
+    branches:
+      - fix/pixel10-powervr-vulkan
+    paths:
+      - ".github/workflows/pixel10-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pixel10-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-apk:
+    name: Build Android arm64 APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      NDK_VER: 29.0.14206865
+      BUILD_TYPE: Release
+      STRIP: "1"
+
+    steps:
+      - name: Free unused runner disk space
+        shell: bash
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
+          df -h
+
+      - name: Checkout the PowerVR development branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Linux build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build clang lld libvulkan-dev nasm \
+            pkg-config autoconf automake libtool curl unzip zip
+          python -m pip install --disable-pip-version-check 'cmake>=3.29,<5'
+          cmake --version
+          ninja --version
+
+      - name: Install Android SDK / NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 35 platform and NDK r29
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;29.0.14206865"
+          echo "ANDROID_HOME=${ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
+          test -x "${ANDROID_SDK_ROOT}/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
+          df -h
+
+      - name: Prepare pinned dependencies and sources
+        shell: bash
+        run: |
+          python tools/setup_repo.py
+          python glue/rexglue-sdk-main/gta4-recomp/tools/check_hack_registry.py
+          df -h
+
+      - name: Build the bundled Vulkan driver proxy
+        shell: bash
+        run: bash os/android/scripts/build_driver_proxy.sh
+
+      - name: Compile ARM64 game and Vulkan renderer
+        shell: bash
+        run: bash os/android/scripts/build_native.sh 2
+
+      - name: Assemble and verify signed debug APK
+        shell: bash
+        run: |
+          rm -f os/android/app/build/outputs/apk/debug/app-debug.apk
+          bash os/android/scripts/build_apk.sh debug
+          APK="os/android/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          unzip -l "$APK" | tee /tmp/apk-contents.txt | tail -30
+          grep -q 'lib/arm64-v8a/libmain.so' /tmp/apk-contents.txt
+          grep -q 'lib/arm64-v8a/librexruntime.so' /tmp/apk-contents.txt
+          cp "$APK" GTAIV-Pixel10-PowerVR-EXPERIMENTAL.apk
+          sha256sum GTAIV-Pixel10-PowerVR-EXPERIMENTAL.apk
+
+      - name: Upload installable test APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTAIV-Pixel10-PowerVR-Experimental-APK
+          path: GTAIV-Pixel10-PowerVR-EXPERIMENTAL.apk
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload build diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTAIV-Pixel10-Build-Diagnostics
+          path: |
+            out/build/android-arm64-release/CMakeFiles/CMakeConfigureLog.yaml
+            out/build/android-arm64-release/CMakeCache.txt
+            os/android/app/build/reports/**
+          if-no-files-found: ignore
+          retention-days: 7
