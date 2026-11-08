@@ -84,6 +84,10 @@ jobs:
           python glue/rexglue-sdk-main/gta4-recomp/tools/check_hack_registry.py
           df -h
 
+      - name: Make build scripts executable
+        shell: bash
+        run: chmod +x os/android/scripts/*.sh
+
       - name: Build the bundled Vulkan driver proxy
         shell: bash
         run: bash os/android/scripts/build_driver_proxy.sh
