@@ -29,6 +29,7 @@ if [ ! -f "$BUILD_DIR/build.ninja" ] || ! grep -q -- "-fno-emulated-tls" "$BUILD
   cmake -S "$REPO" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_C_FLAGS="$CPU_FLAGS" \
     -DCMAKE_CXX_FLAGS="$CPU_FLAGS" \
+    -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
     -DCMAKE_TOOLCHAIN_FILE="$REPO/toolchains/android.cmake" \
     -DANDROID_NDK="$ANDROID_NDK" \
     -DANDROID_ABI=arm64-v8a \
