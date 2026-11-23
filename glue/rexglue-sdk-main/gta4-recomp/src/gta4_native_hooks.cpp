@@ -53,7 +53,11 @@
 #include "gta4_help_trace.h"
 #include "gta4_font_selection_trace.h"
 #include "gta4_draw_distance_policy.h"
+#include "gta4_frame_handoff_profiler.h"
 
+REXCVAR_DEFINE_BOOL(gta4_profile_title_handoff, false, "GTA IV/Diagnostics",
+                    "Trace 120-frame windows of title present cadence and command-submission CPU time")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DECLARE(uint32_t, gta4_shadow_map_base_size);
 REXCVAR_DEFINE_UINT32(gta4_shadow_cascade_count, 0, "GTA IV/Graphics/Shadows",
                       "Directional shadow cascades (0 keeps the stock 5)")
@@ -7647,7 +7651,33 @@ extern "C" void sub_82A467D8(PPCContext& ctx, uint8_t* base) {
         command.diagnostic_device_flag_10942, command.diagnostic_force_content_probe);
   }
   g_last_present_frontbuffer.store(command.frontbuffer_texture, std::memory_order_relaxed);
-  SubmitNativeCommand(command);
+  // Diagnostic-only: no change to command ordering, frame scheduling or render quality.
+  // The cvar is restart-scoped so it can be cached without hot-path registry lookups.
+  static const bool profile_title_handoff = [] {
+    const auto value = rex::cvar::GetFlagByName("gta4_profile_title_handoff");
+    return value == "true" || value == "1";
+  }();
+  if (profile_title_handoff) {
+    using Clock = std::chrono::steady_clock;
+    using Microseconds = std::chrono::microseconds;
+    static gta4::diagnostics::FrameHandoffProfiler profiler;
+    const auto start = Clock::now();
+    SubmitNativeCommand(command);
+    const auto end = Clock::now();
+    const auto start_us = std::chrono::duration_cast<Microseconds>(start.time_since_epoch()).count();
+    const auto submit_us = std::chrono::duration_cast<Microseconds>(end - start).count();
+    if (const auto window = profiler.Observe(static_cast<uint64_t>(start_us),
+                                             static_cast<uint64_t>(submit_us))) {
+      REXLOG_INFO("gta4-title-handoff: samples={} gaps={} mean-gap-us={} max-gap-us={} "
+                  "over-50ms={} over-66ms={} mean-submit-us={} max-submit-us={} "
+                  "gpu-time=unavailable display-present-time=unavailable",
+                  window->count, window->gaps, window->avg_gap_us, window->max_gap_us,
+                  window->gaps_over_50ms, window->gaps_over_66ms,
+                  window->avg_submit_us, window->max_submit_us);
+    }
+  } else {
+    SubmitNativeCommand(command);
+  }
   ctx.r3.u32 = device;
 }
 
