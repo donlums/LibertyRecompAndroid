@@ -273,6 +273,17 @@ public class LibertyActivity extends SDLActivity {
             }
         }
         migrateArguments(argsFile);
+        // The matching Pixel AIO build carries its own settings across APK updates.
+        // Migrate only the known old profile; never delete saves or the shader cache.
+        if ("com.libertyrecomp.aio".equals(getPackageName())) {
+            try {
+                if (PixelLaunchOptions.migrateKnownPixelProfile(argsFile)) {
+                    Log.i(TAG, "migrated Pixel profile draw-distance floor with backup");
+                }
+            } catch (IOException e) {
+                Log.w(TAG, "Pixel profile migration skipped; old args left intact", e);
+            }
+        }
         migrateConfig(new File(new File(dataRoot, "LibertyRecomp"), "native.toml"));
         List<String> arguments = new ArrayList<>(Arrays.asList(readArguments(argsFile)));
         // The runtime's own log (warnings and errors at the default level) goes
@@ -312,7 +323,16 @@ public class LibertyActivity extends SDLActivity {
                 Log.w(TAG, "bad " + argument);
             }
         }
-        mArguments = arguments.toArray(new String[0]);
+        // Last assignment for each cvar wins, as intended by the launcher.
+        // Preserve the final canonical flags for comparison with benchmark exports.
+        List<String> effectiveArguments = PixelLaunchOptions.canonicalize(arguments);
+        mArguments = effectiveArguments.toArray(new String[0]);
+        try {
+            PixelLaunchOptions.writeEffectiveFlags(
+                    new File(dataRoot, "pixel-effective-args.txt"), effectiveArguments);
+        } catch (IOException e) {
+            Log.w(TAG, "cannot export effective launch flags", e);
+        }
         String driver = readFirstLine(new File(dataRoot, "driver.txt"));
         mDriverText = driver;
         String lower = driver == null ? "" : driver.toLowerCase(Locale.ROOT);
