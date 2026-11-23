@@ -156,35 +156,57 @@ public class LauncherActivity extends Activity {
         return false;
     }
 
-    /** A small GitHub mark and the author's name, opening the project page. */
-    private View buildGithubFooter() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER);
-        row.setPadding(dp(8), dp(4), dp(8), dp(4));
-        ImageView mark = new ImageView(this);
-        mark.setImageResource(R.drawable.ic_github);
-        row.addView(mark, new LinearLayout.LayoutParams(dp(16), dp(16)));
-        TextView name = text("vaduur", 13, R.color.picker_muted);
-        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        nameParams.leftMargin = dp(6);
-        row.addView(name, nameParams);
-        row.setFocusable(true);
-        row.setBackground(focusBackground(Color.TRANSPARENT));
-        row.setOnClickListener(v -> {
-            try {
-                startActivity(new Intent(Intent.ACTION_VIEW,
-                        Uri.parse("https://github.com/vaduur/LibertyRecompAndroid")));
-            } catch (Exception e) {
-                toast("github.com/vaduur/LibertyRecompAndroid");
-            }
-        });
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setGravity(Gravity.CENTER);
-        wrapper.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-        return wrapper;
+    /**
+     * Keep the main launcher free of unrelated developer names while making
+     * upstream credits and open-source notices easy to discover.
+     */
+    private View buildPix91Footer() {
+        LinearLayout footer = new LinearLayout(this);
+        footer.setOrientation(LinearLayout.VERTICAL);
+        footer.setGravity(Gravity.CENTER);
+        footer.setPadding(dp(12), dp(8), dp(12), dp(8));
+        footer.setBackground(focusBackground(Color.TRANSPARENT));
+
+        TextView brand = text("Powered by Pix91", 13, R.color.picker_text);
+        brand.setTypeface(Typeface.DEFAULT_BOLD);
+        brand.setGravity(Gravity.CENTER);
+        footer.addView(brand, matchWrap(0));
+
+        TextView details = text("About  ·  Credits  ·  Licences", 11, R.color.picker_muted);
+        details.setGravity(Gravity.CENTER);
+        footer.addView(details, matchWrap(dp(3)));
+
+        footer.setFocusable(true);
+        footer.setContentDescription("Powered by Pix91. About, credits and licences.");
+        footer.setOnClickListener(v -> showAboutAndLicences());
+        return footer;
+    }
+
+    private void showAboutAndLicences() {
+        new AlertDialog.Builder(this)
+                .setTitle("GTA IV Pixel Edition")
+                .setMessage("Pix91 customises this unofficial Android launcher and its Pixel "
+                        + "performance settings. It is not affiliated with Rockstar Games.\n\n"
+                        + "Based on Liberty Recompiled for Android by vaduur and contributors, "
+                        + "together with other third-party open-source components.\n\n"
+                        + "The project is distributed under the GNU GPL v3 and applicable "
+                        + "component licences. You may share and modify the covered GPL code "
+                        + "under its terms. This software is provided without warranty.\n\n"
+                        + "Original Android project: github.com/vaduur/LibertyRecompAndroid")
+                .setPositiveButton("Close", (dialog, which) -> dialog.dismiss())
+                .setNeutralButton("Source", (dialog, which) ->
+                        openProjectUrl("https://github.com/donlums/LibertyRecompAndroid"))
+                .setNegativeButton("GPLv3 licence", (dialog, which) ->
+                        openProjectUrl("https://github.com/donlums/LibertyRecompAndroid/blob/main/COPYING"))
+                .show();
+    }
+
+    private void openProjectUrl(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Exception e) {
+            toast("Unable to open link: " + url);
+        }
     }
 
     @Override
@@ -278,7 +300,7 @@ public class LauncherActivity extends Activity {
         hint.setGravity(Gravity.CENTER);
         left.addView(hint, matchWrap(dp(10)));
 
-        left.addView(buildGithubFooter(), matchWrap(dp(16)));
+        left.addView(buildPix91Footer(), matchWrap(dp(16)));
 
         ScrollView leftScroll = new ScrollView(this);
         leftScroll.addView(left);
@@ -444,8 +466,8 @@ public class LauncherActivity extends Activity {
                 }
                 mCrashText.setText(report.headline + "\n\nSaved to Android/data/" + getPackageName()
                         + "/files/crash_reports/" + report.file.getName()
-                        + "\nPlease attach it to an issue on GitHub (vaduur/LibertyRecompAndroid), "
-                        + "or press Share report to send it from here.");
+                        + "\nKeep this report when reporting a crash, or select Share report "
+                        + "to send it from here.");
                 mCrashCard.setVisibility(View.VISIBLE);
             });
         }, "CrashReports").start();
