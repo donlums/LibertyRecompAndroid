@@ -29,7 +29,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ninja-build python3-pip clang lld pkg-config
-          python3 -m pip install --user --break-system-packages "cmake>=3.29,<4.2"
+          python3 -m pip install --user --break-system-packages "cmake>=3.29,<4"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Install Android SDK and NDK r27d
         uses: android-actions/setup-android@v3
@@ -53,6 +53,7 @@ jobs:
             -DLIBERTY_RECOMP_TARGET_PLATFORM=android \
             -DLIBERTY_RECOMP_ANDROID_RUNTIME_ASSETS=ON \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DREXGLUE_ENABLE_TRACY=OFF \
             -DLIBERTY_ANDROID_RENDERER_THINLTO=ON
       - name: Compile native gta4 Vulkan renderer plugin only
