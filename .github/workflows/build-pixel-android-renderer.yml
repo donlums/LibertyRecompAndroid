@@ -52,6 +52,7 @@ jobs:
           cmake --version
           # NDK Clang is the cross-compiler; never pair it with Ubuntu's
           # clang-scan-deps for C++23 translation-unit dependency scanning.
+          # CMAKE_CXX_SCAN_FOR_MODULES=OFF disables optional module/PCH scanning.
           cmake -S . -B out/build/pixel-android-renderer -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$PWD/toolchains/android.cmake" \
             -DANDROID_NDK="$ANDROID_HOME/ndk/$NDK_VERSION" \
@@ -62,8 +63,6 @@ jobs:
             -DLIBERTY_RECOMP_ANDROID_RUNTIME_ASSETS=ON \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            # Avoid Ubuntu clang-scan-deps-18 reading NDK Android-Clang PCH files.
-            # The project uses C++23 but no C++ modules; scanning is unnecessary.
             -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
             -DREXGLUE_ENABLE_TRACY=OFF \
             -DLIBERTY_ANDROID_RENDERER_THINLTO=ON
