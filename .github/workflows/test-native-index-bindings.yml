@@ -1,0 +1,38 @@
+name: Native Vulkan Index Binding Cache
+on:
+  pull_request:
+    paths:
+      - "glue/rexglue-sdk-main/src/graphics/gta4_native/native_draw_state_cache.h"
+      - "glue/rexglue-sdk-main/src/graphics/gta4_native/graphics_system.h"
+      - "glue/rexglue-sdk-main/src/graphics/gta4_native/graphics_system.cpp"
+      - "tools/tests/native_index_binding_cache_test.cpp"
+      - ".github/workflows/test-native-index-bindings.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-cache-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Vulkan render-state cache correctness tests
+        run: |
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -Iglue/rexglue-sdk-main/src/graphics/gta4_native \
+            tools/tests/native_index_binding_cache_test.cpp -o /tmp/native-index-cache-test
+      - name: Run cache correctness and randomized state tests
+        run: /tmp/native-index-cache-test
+      - name: Guard six Vulkan draw call sites
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path("glue/rexglue-sdk-main/src/graphics/gta4_native/graphics_system.cpp").read_text()
+          assert s.count("BindNativeIndexBuffer(") == 7, "one definition + six draw call sites"
+          assert s.count("vkCmdBindIndexBuffer(") == 1, "Vulkan API must be called only by the helper"
+          assert "gta4_native_dedupe_index_bindings" in s
+          print("PASS six native draw call sites are routed through the cached helper")
+          PY
