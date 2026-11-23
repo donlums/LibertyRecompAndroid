@@ -6,6 +6,9 @@ import android.content.pm.PackageInfo;
 import android.content.res.AssetManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
@@ -85,6 +88,48 @@ public class LibertyActivity extends SDLActivity {
     static final String EXTRA_OTHER_REFLECTION_INTERVAL = "perf_other_reflection_interval";
     private boolean mDebugLog;
     private File mDebugLogFile;
+
+    // The launcher/benchmark sampler lives in a separate Android process.
+    // Foreground status must come from the actual :game activity, not from launcher focus.
+    private final Handler mForegroundHandler = new Handler(Looper.getMainLooper());
+    private boolean mGameResumed;
+    private boolean mWindowFocused;
+    private final Runnable mForegroundHeartbeat = new Runnable() {
+        @Override public void run() {
+            if (!mGameResumed || !mWindowFocused) return;
+            recordGameForeground(true);
+            mForegroundHandler.postDelayed(this, 2_000L);
+        }
+    };
+    private void recordGameForeground(boolean foreground) {
+        try {
+            PixelForegroundState.record(getExternalFilesDir(null), foreground,
+                    SystemClock.elapsedRealtime());
+        } catch (IOException e) {
+            Log.w(TAG, "could not record game foreground state", e);
+        }
+    }
+    private void updateGameForeground() {
+        mForegroundHandler.removeCallbacks(mForegroundHeartbeat);
+        final boolean active = mGameResumed && mWindowFocused;
+        recordGameForeground(active);
+        if (active) mForegroundHandler.postDelayed(mForegroundHeartbeat, 2_000L);
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        mGameResumed = true;
+        updateGameForeground();
+    }
+    @Override protected void onPause() {
+        mGameResumed = false;
+        updateGameForeground();
+        super.onPause();
+    }
+    @Override protected void onDestroy() {
+        mGameResumed = false;
+        updateGameForeground();
+        super.onDestroy();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -207,6 +252,8 @@ public class LibertyActivity extends SDLActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        mWindowFocused = hasFocus;
+        updateGameForeground();
         if (hasFocus) {
             hideSystemBars();
         }
