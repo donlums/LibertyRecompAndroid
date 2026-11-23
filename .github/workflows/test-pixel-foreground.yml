@@ -1,0 +1,32 @@
+name: Pixel Foreground Benchmark Tests
+on:
+  pull_request:
+    paths:
+      - "os/android/app/src/main/java/com/libertyrecomp/PixelForegroundState.java"
+      - "os/android/app/src/main/java/com/libertyrecomp/PixelBenchmarkSamplePolicy.java"
+      - "os/android/app/src/test/java/com/libertyrecomp/TestForegroundBenchmark.java"
+      - ".github/workflows/test-pixel-foreground.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  foreground-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Compile and test foreground sample policy
+        shell: bash
+        run: |
+          mkdir -p build/pixel-foreground
+          javac -d build/pixel-foreground \
+            os/android/app/src/main/java/com/libertyrecomp/PixelForegroundState.java \
+            os/android/app/src/main/java/com/libertyrecomp/PixelBenchmarkSamplePolicy.java \
+            os/android/app/src/test/java/com/libertyrecomp/TestForegroundBenchmark.java
+          java -cp build/pixel-foreground com.libertyrecomp.TestForegroundBenchmark
