@@ -31,8 +31,14 @@ jobs:
           sudo apt-get install -y ninja-build python3-pip clang lld pkg-config
           python3 -m pip install --user --break-system-packages "cmake>=3.29,<4"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Install Android SDK and NDK r27d
-        uses: android-actions/setup-android@v3
+      - name: Use Ubuntu runner's existing Android SDK
+        run: |
+          test -n "$ANDROID_HOME"
+          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" || \
+            test -x "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
       - name: Install matching NDK
         run: |
           yes | sdkmanager --licenses >/dev/null || true
