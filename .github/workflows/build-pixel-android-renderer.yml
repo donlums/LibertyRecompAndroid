@@ -1,0 +1,91 @@
+name: Build Pixel Android Vulkan Renderer
+on:
+  push:
+    branches:
+      - feature/pixel-native-index-binding-cache
+    paths:
+      - "glue/rexglue-sdk-main/src/graphics/gta4_native/**"
+      - "glue/rexglue-sdk-main/src/graphics/CMakeLists.txt"
+      - ".github/workflows/build-pixel-android-renderer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      NDK_VERSION: "29.0.14206865"
+    steps:
+      - name: Checkout native project and pinned dependencies
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Prepare build packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ninja-build python3-pip clang lld pkg-config
+          python3 -m pip install --user --break-system-packages "cmake>=3.29,<4"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Use Ubuntu runner's existing Android SDK
+        run: |
+          test -n "$ANDROID_HOME"
+          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" || \
+            test -x "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+      - name: Install matching NDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "ndk;${NDK_VERSION}" "platforms;android-35" >/dev/null
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Verify C++20 thread support in the NDK
+        run: |
+          printf '#include <thread>\n#include <stop_token>\nvoid f(std::stop_token) {}\nvoid x() { std::jthread t(f); t.request_stop(); }\n' \
+            | "$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" \
+                --target=aarch64-linux-android28 -std=c++23 -x c++ -fsyntax-only -
+      - name: Check dependencies and build configuration
+        run: |
+          df -h .
+          python3 tools/setup_repo.py --prepare-only
+          python3 tools/setup_repo.py --check
+          cmake --version
+          # NDK Clang is the cross-compiler; never pair it with Ubuntu's
+          # clang-scan-deps for C++23 translation-unit dependency scanning.
+          # CMAKE_CXX_SCAN_FOR_MODULES=OFF disables optional module/PCH scanning.
+          cmake -S . -B out/build/pixel-android-renderer -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/toolchains/android.cmake" \
+            -DANDROID_NDK="$ANDROID_HOME/ndk/$NDK_VERSION" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-28 \
+            -DANDROID_STL=c++_shared \
+            -DLIBERTY_RECOMP_TARGET_PLATFORM=android \
+            -DLIBERTY_RECOMP_ANDROID_RUNTIME_ASSETS=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
+            -DREXGLUE_ENABLE_TRACY=OFF \
+            -DLIBERTY_ANDROID_RENDERER_THINLTO=ON
+      - name: Compile native gta4 Vulkan renderer plugin only
+        run: cmake --build out/build/pixel-android-renderer --target rexgpu-gta4-native --parallel 2
+      - name: Validate native ELF ABI and dependencies
+        run: |
+          SO="$(find glue/rexglue-sdk-main/out out/build -name librexgpu-gta4-native.so -type f -print -quit)"
+          test -n "$SO" && test -s "$SO"
+          file "$SO"
+          "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -h "$SO" | grep -E 'ELF64|AArch64'
+          "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -d "$SO" | grep NEEDED
+          mkdir -p pixel-renderer-artifact
+          cp "$SO" pixel-renderer-artifact/
+          sha256sum pixel-renderer-artifact/*.so > pixel-renderer-artifact/SHA256SUMS
+      - name: Export unsigned native renderer library only (no signing secrets)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta4-native-arm64-index-binding-cache
+          path: pixel-renderer-artifact/
+          retention-days: 7
