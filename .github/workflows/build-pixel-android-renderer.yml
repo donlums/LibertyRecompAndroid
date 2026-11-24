@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:
-      NDK_VERSION: "27.3.13750724"
+      NDK_VERSION: "29.0.14206865"
     steps:
       - name: Checkout native project and pinned dependencies
         uses: actions/checkout@v4
@@ -44,6 +44,11 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --install "ndk;${NDK_VERSION}" "platforms;android-35" >/dev/null
           echo "ANDROID_NDK=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Verify C++20 thread support in the NDK
+        run: |
+          printf '#include <thread>\n#include <stop_token>\nvoid f(std::stop_token) {}\nvoid x() { std::jthread t(f); t.request_stop(); }\n' \
+            | "$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" \
+                --target=aarch64-linux-android28 -std=c++23 -x c++ -fsyntax-only -
       - name: Check dependencies and build configuration
         run: |
           df -h .
