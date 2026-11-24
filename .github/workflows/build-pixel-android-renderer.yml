@@ -1,4 +1,5 @@
 name: Build Pixel Android Vulkan Renderer
+# Trigger fresh Pixel NDK r29 native Vulkan renderer build on this feature branch.
 on:
   push:
     branches:
