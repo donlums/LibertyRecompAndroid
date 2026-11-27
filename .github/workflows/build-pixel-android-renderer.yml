@@ -56,13 +56,43 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           spirv-val --version
           glslangValidator --version
+      - name: Install pinned stable DXC 1.9.2609 host compiler
+        run: |
+          set -euo pipefail
+          DXC_ROOT="$RUNNER_TEMP/dxc-1.9.2609"
+          mkdir -p "$DXC_ROOT" pixel-shader-diagnostics
+          ARCHIVE="$RUNNER_TEMP/dxc-1.9.2609.tar.gz"
+          curl --fail --location --retry 4 --retry-all-errors --output "$ARCHIVE" \
+            https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz
+          echo "96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1  $ARCHIVE" | sha256sum --check
+          tar -tzf "$ARCHIVE" > pixel-shader-diagnostics/dxc-archive-files.txt
+          tar -xzf "$ARCHIVE" -C "$DXC_ROOT" --no-same-owner --no-same-permissions
+          # The upstream archive can contain separate x86/x64 directories.
+          # Select the x86-64 host executable and its matching ELF library.
+          mapfile -t bins < <(find "$DXC_ROOT" -type f \( -name dxc -o -name dxc-linux \) -print | while IFS= read -r p; do
+            if file -Lb "$p" | grep -q 'ELF 64-bit.*x86-64'; then printf '%s\n' "$p"; fi
+          done)
+          mapfile -t libs < <(find "$DXC_ROOT" -name libdxcompiler.so -print | while IFS= read -r p; do
+            if file -Lb "$p" | grep -q 'ELF 64-bit.*x86-64'; then printf '%s\n' "$p"; fi
+          done)
+          if [[ "${#bins[@]}" != 1 || "${#libs[@]}" != 1 ]]; then
+            printf 'Unexpected DXC package layout: %s executables, %s libraries\n' "${#bins[@]}" "${#libs[@]}"
+            cat pixel-shader-diagnostics/dxc-archive-files.txt
+            exit 1
+          fi
+          DXC="${bins[0]}"
+          DXC_LIB="$(dirname "${libs[0]}")"
+          test -x "$DXC"
+          LD_LIBRARY_PATH="$DXC_LIB" "$DXC" --version | tee pixel-shader-diagnostics/dxc-version.txt
+          LD_LIBRARY_PATH="$DXC_LIB" ldd "$DXC" | tee pixel-shader-diagnostics/dxc-linkage.txt
+          if grep -q 'not found' pixel-shader-diagnostics/dxc-linkage.txt; then exit 1; fi
+          printf 'PIXEL_HOST_DXC=%s\nPIXEL_HOST_DXC_LIB=%s\n' "$DXC" "$DXC_LIB" >> "$GITHUB_ENV"
       - name: Isolate Bink DXC shader compilation and validation
         run: |
           set -o pipefail
           mkdir -p pixel-shader-diagnostics
-          DXC_ROOT="$PWD/tools/XenosRecomp/thirdparty/dxc-bin"
-          DXC="$DXC_ROOT/bin/x64/dxc-linux"
-          DXC_LIB="$DXC_ROOT/lib/x64"
+          DXC="$PIXEL_HOST_DXC"
+          DXC_LIB="$PIXEL_HOST_DXC_LIB"
           ROOT="$PWD/LibertyRecompLib/shader_overrides"
           {
             file "$DXC"
@@ -123,6 +153,8 @@ jobs:
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-28 \
             -DANDROID_STL=c++_shared \
+            -DGTA4_NATIVE_DXC_EXECUTABLE:FILEPATH="$PIXEL_HOST_DXC" \
+            -DGTA4_NATIVE_DXC_LIBRARY_PATH:PATH="$PIXEL_HOST_DXC_LIB" \
             -DGTA4_NATIVE_SPIRV_VAL:FILEPATH="$(command -v spirv-val)" \
             -DGTA4_NATIVE_GLSLANG_VALIDATOR:FILEPATH="$(command -v glslangValidator)" \
             -DLIBERTY_RECOMP_TARGET_PLATFORM=android \
