@@ -32,6 +32,8 @@ jobs:
           submodules: recursive
           fetch-depth: 1
           persist-credentials: false
+      - name: Validate game safe-mode registry before expensive compilation
+        run: python3 glue/rexglue-sdk-main/gta4-recomp/tools/check_hack_registry.py
       - name: Prepare build packages
         run: |
           # Use runner-provided tools when available; unrelated third-party
@@ -213,7 +215,6 @@ jobs:
           free -h
           GAME="$PWD/glue/rexglue-sdk-main/gta4-recomp"
           python3 "$GAME/tools/direct_calls.py" undo
-          python3 "$GAME/tools/check_hack_registry.py"
           # Same CMake tree and NDK as the validated renderer above.
           # Limit concurrent guest translation units to avoid runner OOM.
           cmake --build out/build/pixel-android-renderer --target LibertyRecomp --parallel 2

@@ -7,8 +7,8 @@
 //
 // Safe mode (gta4_safe_mode) applies those values at launch, so a bug report
 // can be checked against the port without its shortcuts in one run, and then
-// narrowed down one entry at a time. tools/check_hack_registry.py fails the
-// build check when a cvar of a registered category is missing here.
+// narrowed down one entry at a time. tools/check_hack_registry.py validates
+// registry entries and required rollback settings at build time.
 
 #include <array>
 #include <string_view>
@@ -63,6 +63,7 @@ inline constexpr auto kRegistry = std::to_array<Entry>({
     {"gta4_native_lossless_resolve_optimization", Kind::kShortcut, "false", "prior resolve contents discarded on full overwrite"},
     {"gta4_native_present_from_surface", Kind::kShortcut, "false", "present straight from the final surface"},
     {"gta4_native_dedupe_vertex_bindings", Kind::kShortcut, "false", "repeated vertex buffer binds skipped"},
+    {"gta4_native_dedupe_index_bindings", Kind::kShortcut, "false", "repeated index buffer binds skipped"},
     {"gta4_native_keep_draw_state", Kind::kShortcut, "false", "draw state kept across clears and markers"},
     {"gta4_native_vertex_cache_order", Kind::kShortcut, "false", "triangles reordered for the vertex cache"},
     {"gta4_native_partial_constant_upload", Kind::kShortcut, "false", "only readable constants uploaded"},
