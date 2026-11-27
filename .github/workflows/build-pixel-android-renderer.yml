@@ -4,16 +4,15 @@ on:
   push:
     branches:
       - feature/pixel-native-index-binding-cache
-    paths:
-      - "glue/rexglue-sdk-main/src/graphics/gta4_native/**"
-      - "glue/rexglue-sdk-main/src/graphics/CMakeLists.txt"
-      - ".github/workflows/build-pixel-android-renderer.yml"
   pull_request:
     branches:
       - main
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
-      - "glue/rexglue-sdk-main/src/graphics/gta4_native/**"
-      - "glue/rexglue-sdk-main/src/graphics/CMakeLists.txt"
+      - "glue/rexglue-sdk-main/**"
+      - "toolchains/**"
+      - "tools/setup_repo.py"
+      - "CMakeLists.txt"
       - ".github/workflows/build-pixel-android-renderer.yml"
   workflow_dispatch:
 
