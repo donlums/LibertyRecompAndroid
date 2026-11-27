@@ -42,6 +42,8 @@ jobs:
           command -v clang >/dev/null || missing+=(clang)
           command -v ld.lld >/dev/null || missing+=(lld)
           command -v pkg-config >/dev/null || missing+=(pkg-config)
+          command -v spirv-val >/dev/null || missing+=(spirv-tools)
+          command -v glslangValidator >/dev/null || missing+=(glslang-tools)
           if (( ${#missing[@]} )); then
             test -f /etc/apt/sources.list.d/ubuntu.sources
             apt_opts=(-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o Acquire::Retries=3)
@@ -52,6 +54,8 @@ jobs:
             python3 -m pip install --retries 5 --user --break-system-packages "cmake>=3.29,<4"
           fi
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          spirv-val --version
+          glslangValidator --version
       - name: Use Ubuntu runner's existing Android SDK
         run: |
           test -n "$ANDROID_HOME"
@@ -96,6 +100,8 @@ jobs:
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-28 \
             -DANDROID_STL=c++_shared \
+            -DGTA4_NATIVE_SPIRV_VAL:FILEPATH="$(command -v spirv-val)" \
+            -DGTA4_NATIVE_GLSLANG_VALIDATOR:FILEPATH="$(command -v glslangValidator)" \
             -DLIBERTY_RECOMP_TARGET_PLATFORM=android \
             -DLIBERTY_RECOMP_ANDROID_RUNTIME_ASSETS=ON \
             -DCMAKE_BUILD_TYPE=Release \
@@ -121,6 +127,9 @@ jobs:
                   raise SystemExit(f"Unexpected C++ compiler: {compilers}; expected NDK {ndk}")
               print("Verified timer queue compiler:", compilers[0])
           PY
+      - name: Compile and validate shader overrides before full native build
+        run: |
+          cmake --build out/build/pixel-android-renderer --target glue/rexglue-sdk/src/graphics/generated/gta4_native/shader_override_cache.cpp --parallel 2
       - name: Compile native gta4 Vulkan renderer plugin only
         run: cmake --build out/build/pixel-android-renderer --target rexgpu-gta4-native --parallel 2
       - name: Validate native ELF ABI and dependencies
