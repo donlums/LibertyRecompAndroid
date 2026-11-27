@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import re
+import signal
 import struct
 import subprocess
 import sys
@@ -69,6 +70,18 @@ ENTRY_KEYS = {
 
 class ManifestError(ValueError):
     pass
+
+
+class ShaderToolError(ManifestError):
+    def __init__(self, message: str, returncode: int):
+        super().__init__(message)
+        self.returncode = returncode
+
+    @property
+    def compiler_crash(self) -> bool:
+        # Direct subprocess signals are negative; wrappers can return 128+signal.
+        signals = (signal.SIGSEGV, signal.SIGABRT, signal.SIGILL, signal.SIGBUS)
+        return any(self.returncode in (-int(sig), 128 + int(sig)) for sig in signals)
 
 
 @dataclass(frozen=True)
@@ -379,7 +392,15 @@ def _run_tool(command: Sequence[str], environment: dict[str, str] | None = None)
     )
     if result.returncode:
         rendered = " ".join(command)
-        raise ManifestError(f"shader tool failed ({rendered}):\n{result.stdout}")
+        status = f"exit={result.returncode}"
+        if result.returncode < 0:
+            try:
+                status += f" ({signal.Signals(-result.returncode).name})"
+            except ValueError:
+                pass
+        diagnostic = result.stdout.strip() or "<no compiler output>"
+        raise ShaderToolError(f"shader tool failed [{status}] ({rendered}):\n{diagnostic}",
+                              result.returncode)
 
 
 def _compiler_environment(library_path: str | None) -> dict[str, str]:
@@ -451,7 +472,29 @@ def compile_shader(
         command.extend(f"-D{define}" for define in entry["defines"])
         command.extend(f"-D{define}" for define in additional_defines)
         command.extend(("-Fo", str(output_path), str(source)))
-        _run_tool(command, _compiler_environment(dxc_library_path))
+        environment = _compiler_environment(dxc_library_path)
+        try:
+            _run_tool(command, environment)
+        except ShaderToolError as error:
+            # Only the Bink pixel shaders get an optimizer-crash workaround.
+            # Keep layout, defines, warnings and SPIR-V validation unchanged.
+            if (source.name not in ("ps_bink.hlsl", "ps_bink_no_alpha.hlsl")
+                    or entry["stage_name"] != "pixel" or not error.compiler_crash):
+                raise
+            for optimization in ("-O1", "-Od"):
+                print(f"{error}\nRetrying {entry['source_name']} with {optimization}",
+                      file=sys.stderr, flush=True)
+                output_path.unlink(missing_ok=True)
+                retry = [optimization if arg == "-O3" else arg for arg in command]
+                try:
+                    _run_tool(retry, environment)
+                    print(f"DXC compiled {entry['source_name']} with {optimization}; "
+                          "SPIR-V validation still required", file=sys.stderr, flush=True)
+                    break
+                except ShaderToolError as retry_error:
+                    if not retry_error.compiler_crash or optimization == "-Od":
+                        raise
+                    error = retry_error
         return
 
     if not glslang_validator:
@@ -766,6 +809,8 @@ def parse_arguments(arguments: Sequence[str] | None = None) -> argparse.Namespac
     parser.add_argument("--dxc-library-path")
     parser.add_argument("--glslang-validator")
     parser.add_argument("--spirv-val")
+    parser.add_argument("--probe-source", action="append", default=[],
+                        help="Validate only the named manifest source(s); never emit a production cache.")
     return parser.parse_args(arguments)
 
 
@@ -773,6 +818,12 @@ def main(arguments: Sequence[str] | None = None) -> int:
     options = parse_arguments(arguments)
     try:
         entries = load_manifest(options.manifest, options.source_root)
+        if options.probe_source:
+            requested = set(options.probe_source)
+            missing = requested - {entry["source_name"] for entry in entries}
+            if missing:
+                raise ManifestError(f"Unknown probe sources: {sorted(missing)}")
+            entries = [entry for entry in entries if entry["source_name"] in requested]
         if entries and not options.spirv_val:
             raise ManifestError("spirv-val is required when the override manifest is not empty")
 
@@ -780,6 +831,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
         with tempfile.TemporaryDirectory(prefix="gta4-shader-overrides-") as temporary_directory:
             temporary_root = Path(temporary_directory)
             for index, entry in enumerate(entries):
+                if options.probe_source:
+                    print(f"Probing {entry['source_name']}", flush=True)
                 spirv_path = temporary_root / f"override-{index}.spv"
                 compile_shader(
                     entry,
@@ -847,6 +900,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
                         )
                 compiled_entries.append(compiled_entry)
 
+        if options.probe_source:
+            print(f"Probe passed: {len(compiled_entries)} manifest entries validated "
+                  "(including required late variants); no production cache written.", flush=True)
+            return 0
         _write_if_changed(options.output, generate_cpp(compiled_entries))
         if options.depfile:
             dependencies = [options.manifest, Path(__file__)]

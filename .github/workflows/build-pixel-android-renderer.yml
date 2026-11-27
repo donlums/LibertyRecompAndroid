@@ -56,6 +56,29 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           spirv-val --version
           glslangValidator --version
+      - name: Isolate Bink DXC shader compilation and validation
+        run: |
+          set -o pipefail
+          mkdir -p pixel-shader-diagnostics
+          DXC_ROOT="$PWD/tools/XenosRecomp/thirdparty/dxc-bin"
+          DXC="$DXC_ROOT/bin/x64/dxc-linux"
+          DXC_LIB="$DXC_ROOT/lib/x64"
+          ROOT="$PWD/LibertyRecompLib/shader_overrides"
+          {
+            file "$DXC"
+            free -h
+            df -h .
+            LD_LIBRARY_PATH="$DXC_LIB:${LD_LIBRARY_PATH:-}" "$DXC" --version
+            python3 -m py_compile glue/rexglue-sdk-main/tools/gta4_shader_override_compiler.py
+            python3 -u glue/rexglue-sdk-main/tools/gta4_shader_override_compiler.py \
+              --manifest "$ROOT/manifest.json" --source-root "$ROOT" \
+              --output "$RUNNER_TEMP/bink-probe-unused.cpp" \
+              --dxc "$DXC" --dxc-library-path "$DXC_LIB" \
+              --glslang-validator "$(command -v glslangValidator)" \
+              --spirv-val "$(command -v spirv-val)" \
+              --probe-source bink/ps_bink.hlsl \
+              --probe-source bink/ps_bink_no_alpha.hlsl
+          } 2>&1 | tee pixel-shader-diagnostics/bink-probe.log
       - name: Use Ubuntu runner's existing Android SDK
         run: |
           test -n "$ANDROID_HOME"
@@ -129,7 +152,9 @@ jobs:
           PY
       - name: Compile and validate shader overrides before full native build
         run: |
-          cmake --build out/build/pixel-android-renderer --target glue/rexglue-sdk/src/graphics/generated/gta4_native/shader_override_cache.cpp --parallel 2
+          set -o pipefail
+          mkdir -p pixel-shader-diagnostics
+          cmake --build out/build/pixel-android-renderer --target glue/rexglue-sdk/src/graphics/generated/gta4_native/shader_override_cache.cpp --parallel 2 2>&1 | tee pixel-shader-diagnostics/full-shader-build.log
       - name: Compile native gta4 Vulkan renderer plugin only
         run: cmake --build out/build/pixel-android-renderer --target rexgpu-gta4-native --parallel 2
       - name: Validate native ELF ABI and dependencies
@@ -147,6 +172,15 @@ jobs:
         with:
           name: gta4-native-arm64-index-binding-cache
           path: pixel-renderer-artifact/
+          retention-days: 7
+
+      - name: Export shader diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-shader-diagnostics
+          path: pixel-shader-diagnostics/
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Export configure diagnostics on failure
