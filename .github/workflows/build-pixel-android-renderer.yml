@@ -75,10 +75,28 @@ jobs:
             -DLIBERTY_RECOMP_TARGET_PLATFORM=android \
             -DLIBERTY_RECOMP_ANDROID_RUNTIME_ASSETS=ON \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
             -DREXGLUE_ENABLE_TRACY=OFF \
             -DLIBERTY_ANDROID_RENDERER_THINLTO=ON
+      - name: Verify configured Android compiler matches installed NDK
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, shlex
+          build = pathlib.Path("out/build/pixel-android-renderer")
+          ndk = pathlib.Path(os.environ["ANDROID_NDK"]).resolve()
+          entries = json.loads((build / "compile_commands.json").read_text())
+          cpp = [entry for entry in entries if entry["file"].endswith("timer_queue.cpp")]
+          if not cpp:
+              raise SystemExit("Missing timer_queue.cpp compile command")
+          for entry in cpp:
+              args = entry.get("arguments") or shlex.split(entry["command"])
+              compilers = [pathlib.Path(arg).resolve() for arg in args if arg.endswith("/clang++")]
+              if len(compilers) != 1 or not compilers[0].is_relative_to(ndk):
+                  raise SystemExit(f"Unexpected C++ compiler: {compilers}; expected NDK {ndk}")
+              print("Verified timer queue compiler:", compilers[0])
+          PY
       - name: Compile native gta4 Vulkan renderer plugin only
         run: cmake --build out/build/pixel-android-renderer --target rexgpu-gta4-native --parallel 2
       - name: Validate native ELF ABI and dependencies
@@ -96,4 +114,16 @@ jobs:
         with:
           name: gta4-native-arm64-index-binding-cache
           path: pixel-renderer-artifact/
+          retention-days: 7
+
+      - name: Export configure diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-renderer-configure-diagnostics
+          path: |
+            out/build/pixel-android-renderer/CMakeCache.txt
+            out/build/pixel-android-renderer/CMakeFiles/CMakeConfigureLog.yaml
+            out/build/pixel-android-renderer/compile_commands.json
+          if-no-files-found: ignore
           retention-days: 7
