@@ -51,11 +51,22 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --install "ndk;${NDK_VERSION}" "platforms;android-35" >/dev/null
           echo "ANDROID_NDK=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
-      - name: Verify C++20 thread support in the NDK
+      - name: Verify portable thread and atomic support in the NDK
         run: |
-          printf '#include <thread>\n#include <stop_token>\nvoid f(std::stop_token) {}\nvoid x() { std::jthread t(f); t.request_stop(); }\n' \
-            | "$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" \
-                --target=aarch64-linux-android28 -std=c++23 -x c++ -fsyntax-only -
+          cat > "$RUNNER_TEMP/rex-thread-probe.cpp" <<'CPP'
+          #include <atomic>
+          #include <thread>
+          int main() {
+            std::atomic<bool> stop{false};
+            std::thread worker([&] { stop.wait(false, std::memory_order_acquire); });
+            stop.store(true, std::memory_order_release);
+            stop.notify_all();
+            worker.join();
+          }
+          CPP
+          "$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" \
+            --target=aarch64-linux-android28 -std=c++23 -pthread \
+            "$RUNNER_TEMP/rex-thread-probe.cpp" -o "$RUNNER_TEMP/rex-thread-probe"
       - name: Check dependencies and build configuration
         run: |
           df -h .
