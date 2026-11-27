@@ -1,18 +1,18 @@
 name: Build Pixel Android Vulkan Renderer
+# Trigger fresh Pixel NDK r29 native Vulkan renderer build on this feature branch.
 on:
   push:
     branches:
       - feature/pixel-native-index-binding-cache
-    paths:
-      - "glue/rexglue-sdk-main/src/graphics/gta4_native/**"
-      - "glue/rexglue-sdk-main/src/graphics/CMakeLists.txt"
-      - ".github/workflows/build-pixel-android-renderer.yml"
   pull_request:
     branches:
       - main
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
-      - "glue/rexglue-sdk-main/src/graphics/gta4_native/**"
-      - "glue/rexglue-sdk-main/src/graphics/CMakeLists.txt"
+      - "glue/rexglue-sdk-main/**"
+      - "toolchains/**"
+      - "tools/setup_repo.py"
+      - "CMakeLists.txt"
       - ".github/workflows/build-pixel-android-renderer.yml"
   workflow_dispatch:
 
@@ -22,7 +22,7 @@ permissions:
 jobs:
   native-android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 300
     env:
       NDK_VERSION: "29.0.14206865"
     steps:
@@ -32,12 +32,85 @@ jobs:
           submodules: recursive
           fetch-depth: 1
           persist-credentials: false
+      - name: Validate game safe-mode registry before expensive compilation
+        run: python3 glue/rexglue-sdk-main/gta4-recomp/tools/check_hack_registry.py
       - name: Prepare build packages
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y ninja-build python3-pip clang lld pkg-config
-          python3 -m pip install --user --break-system-packages "cmake>=3.29,<4"
+          # Use runner-provided tools when available; unrelated third-party
+          # APT feeds must not block an Android build.
+          missing=()
+          command -v ninja >/dev/null || missing+=(ninja-build)
+          python3 -m pip --version >/dev/null 2>&1 || missing+=(python3-pip)
+          command -v clang >/dev/null || missing+=(clang)
+          command -v ld.lld >/dev/null || missing+=(lld)
+          command -v pkg-config >/dev/null || missing+=(pkg-config)
+          command -v spirv-val >/dev/null || missing+=(spirv-tools)
+          command -v glslangValidator >/dev/null || missing+=(glslang-tools)
+          if (( ${#missing[@]} )); then
+            test -f /etc/apt/sources.list.d/ubuntu.sources
+            apt_opts=(-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o Acquire::Retries=3)
+            sudo apt-get "${apt_opts[@]}" update -qq
+            sudo apt-get "${apt_opts[@]}" install -y "${missing[@]}"
+          fi
+          if ! python3 -c 'import re,subprocess; s=subprocess.check_output(["cmake","--version"],text=True); v=tuple(map(int,re.search(r"cmake version (\d+)\.(\d+)",s).groups())); assert (3,29)<=v<(4,0)' 2>/dev/null; then
+            python3 -m pip install --retries 5 --user --break-system-packages "cmake>=3.29,<4"
+          fi
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          spirv-val --version
+          glslangValidator --version
+      - name: Install pinned stable DXC 1.9.2609 host compiler
+        run: |
+          set -euo pipefail
+          DXC_ROOT="$RUNNER_TEMP/dxc-1.9.2609"
+          mkdir -p "$DXC_ROOT" pixel-shader-diagnostics
+          ARCHIVE="$RUNNER_TEMP/dxc-1.9.2609.tar.gz"
+          curl --fail --location --retry 4 --retry-all-errors --output "$ARCHIVE" \
+            https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/linux_dxc_2026_09_28.x86_x64.tar.gz
+          echo "96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1  $ARCHIVE" | sha256sum --check
+          tar -tzf "$ARCHIVE" > pixel-shader-diagnostics/dxc-archive-files.txt
+          tar -xzf "$ARCHIVE" -C "$DXC_ROOT" --no-same-owner --no-same-permissions
+          # The upstream archive can contain separate x86/x64 directories.
+          # Select the x86-64 host executable and its matching ELF library.
+          mapfile -t bins < <(find "$DXC_ROOT" -type f \( -name dxc -o -name dxc-linux \) -print | while IFS= read -r p; do
+            if file -Lb "$p" | grep -q 'ELF 64-bit.*x86-64'; then printf '%s\n' "$p"; fi
+          done)
+          mapfile -t libs < <(find "$DXC_ROOT" -name libdxcompiler.so -print | while IFS= read -r p; do
+            if file -Lb "$p" | grep -q 'ELF 64-bit.*x86-64'; then printf '%s\n' "$p"; fi
+          done)
+          if [[ "${#bins[@]}" != 1 || "${#libs[@]}" != 1 ]]; then
+            printf 'Unexpected DXC package layout: %s executables, %s libraries\n' "${#bins[@]}" "${#libs[@]}"
+            cat pixel-shader-diagnostics/dxc-archive-files.txt
+            exit 1
+          fi
+          DXC="${bins[0]}"
+          DXC_LIB="$(dirname "${libs[0]}")"
+          test -x "$DXC"
+          LD_LIBRARY_PATH="$DXC_LIB" "$DXC" --version | tee pixel-shader-diagnostics/dxc-version.txt
+          LD_LIBRARY_PATH="$DXC_LIB" ldd "$DXC" | tee pixel-shader-diagnostics/dxc-linkage.txt
+          if grep -q 'not found' pixel-shader-diagnostics/dxc-linkage.txt; then exit 1; fi
+          printf 'PIXEL_HOST_DXC=%s\nPIXEL_HOST_DXC_LIB=%s\n' "$DXC" "$DXC_LIB" >> "$GITHUB_ENV"
+      - name: Isolate Bink DXC shader compilation and validation
+        run: |
+          set -o pipefail
+          mkdir -p pixel-shader-diagnostics
+          DXC="$PIXEL_HOST_DXC"
+          DXC_LIB="$PIXEL_HOST_DXC_LIB"
+          ROOT="$PWD/LibertyRecompLib/shader_overrides"
+          {
+            file "$DXC"
+            free -h
+            df -h .
+            LD_LIBRARY_PATH="$DXC_LIB:${LD_LIBRARY_PATH:-}" "$DXC" --version
+            python3 -m py_compile glue/rexglue-sdk-main/tools/gta4_shader_override_compiler.py
+            python3 -u glue/rexglue-sdk-main/tools/gta4_shader_override_compiler.py \
+              --manifest "$ROOT/manifest.json" --source-root "$ROOT" \
+              --output "$RUNNER_TEMP/bink-probe-unused.cpp" \
+              --dxc "$DXC" --dxc-library-path "$DXC_LIB" \
+              --glslang-validator "$(command -v glslangValidator)" \
+              --spirv-val "$(command -v spirv-val)" \
+              --probe-source bink/ps_bink.hlsl \
+              --probe-source bink/ps_bink_no_alpha.hlsl
+          } 2>&1 | tee pixel-shader-diagnostics/bink-probe.log
       - name: Use Ubuntu runner's existing Android SDK
         run: |
           test -n "$ANDROID_HOME"
@@ -51,11 +124,22 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --install "ndk;${NDK_VERSION}" "platforms;android-35" >/dev/null
           echo "ANDROID_NDK=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
-      - name: Verify C++20 thread support in the NDK
+      - name: Verify portable thread and atomic support in the NDK
         run: |
-          printf '#include <thread>\n#include <stop_token>\nvoid f(std::stop_token) {}\nvoid x() { std::jthread t(f); t.request_stop(); }\n' \
-            | "$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" \
-                --target=aarch64-linux-android28 -std=c++23 -x c++ -fsyntax-only -
+          cat > "$RUNNER_TEMP/rex-thread-probe.cpp" <<'CPP'
+          #include <atomic>
+          #include <thread>
+          int main() {
+            std::atomic<bool> stop{false};
+            std::thread worker([&] { stop.wait(false, std::memory_order_acquire); });
+            stop.store(true, std::memory_order_release);
+            stop.notify_all();
+            worker.join();
+          }
+          CPP
+          "$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" \
+            --target=aarch64-linux-android28 -std=c++23 -pthread \
+            "$RUNNER_TEMP/rex-thread-probe.cpp" -o "$RUNNER_TEMP/rex-thread-probe"
       - name: Check dependencies and build configuration
         run: |
           df -h .
@@ -71,13 +155,40 @@ jobs:
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-28 \
             -DANDROID_STL=c++_shared \
+            -DGTA4_NATIVE_DXC_EXECUTABLE:FILEPATH="$PIXEL_HOST_DXC" \
+            -DGTA4_NATIVE_DXC_LIBRARY_PATH:PATH="$PIXEL_HOST_DXC_LIB" \
+            -DGTA4_NATIVE_SPIRV_VAL:FILEPATH="$(command -v spirv-val)" \
+            -DGTA4_NATIVE_GLSLANG_VALIDATOR:FILEPATH="$(command -v glslangValidator)" \
             -DLIBERTY_RECOMP_TARGET_PLATFORM=android \
             -DLIBERTY_RECOMP_ANDROID_RUNTIME_ASSETS=ON \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
             -DREXGLUE_ENABLE_TRACY=OFF \
             -DLIBERTY_ANDROID_RENDERER_THINLTO=ON
+      - name: Verify configured Android compiler matches installed NDK
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, shlex
+          build = pathlib.Path("out/build/pixel-android-renderer")
+          ndk = pathlib.Path(os.environ["ANDROID_NDK"]).resolve()
+          entries = json.loads((build / "compile_commands.json").read_text())
+          cpp = [entry for entry in entries if entry["file"].endswith("timer_queue.cpp")]
+          if not cpp:
+              raise SystemExit("Missing timer_queue.cpp compile command")
+          for entry in cpp:
+              args = entry.get("arguments") or shlex.split(entry["command"])
+              compilers = [pathlib.Path(arg).resolve() for arg in args if arg.endswith("/clang++")]
+              if len(compilers) != 1 or not compilers[0].is_relative_to(ndk):
+                  raise SystemExit(f"Unexpected C++ compiler: {compilers}; expected NDK {ndk}")
+              print("Verified timer queue compiler:", compilers[0])
+          PY
+      - name: Compile and validate shader overrides before full native build
+        run: |
+          set -o pipefail
+          mkdir -p pixel-shader-diagnostics
+          cmake --build out/build/pixel-android-renderer --target glue/rexglue-sdk/src/graphics/generated/gta4_native/shader_override_cache.cpp --parallel 2 2>&1 | tee pixel-shader-diagnostics/full-shader-build.log
       - name: Compile native gta4 Vulkan renderer plugin only
         run: cmake --build out/build/pixel-android-renderer --target rexgpu-gta4-native --parallel 2
       - name: Validate native ELF ABI and dependencies
@@ -95,4 +206,132 @@ jobs:
         with:
           name: gta4-native-arm64-index-binding-cache
           path: pixel-renderer-artifact/
+          retention-days: 7
+
+      - name: Build full matching Android game runtime
+        run: |
+          set -euo pipefail
+          df -h .
+          free -h
+          GAME="$PWD/glue/rexglue-sdk-main/gta4-recomp"
+          python3 "$GAME/tools/direct_calls.py" undo
+          # Same CMake tree and NDK as the validated renderer above.
+          # Limit concurrent guest translation units to avoid runner OOM.
+          cmake --build out/build/pixel-android-renderer --target LibertyRecomp --parallel 2
+          "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" --defined-only \
+            out/build/pixel-android-renderer/glue/gta4-recomp/libmain.so > "$RUNNER_TEMP/libmain-symbols.txt"
+          python3 "$GAME/tools/direct_calls.py" check "$RUNNER_TEMP/libmain-symbols.txt"
+      - name: Build Vulkan driver proxy and stage matching native libraries
+        run: |
+          set -euo pipefail
+          BUILD="$PWD/out/build/pixel-android-renderer"
+          REX="$PWD/glue/rexglue-sdk-main/out/linux-arm64"
+          STAGE="$PWD/os/android/app/src/main/jniLibs/arm64-v8a"
+          BIN="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          mkdir -p "$STAGE"
+          cmake -S os/android/native -B out/build/android-driver-proxy -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLIBERTY_ANDROID_SYSTEM_VULKAN_ONLY=ON
+          cmake --build out/build/android-driver-proxy --parallel 2
+          PROXY="$(find out/build/android-driver-proxy -name libvulkan.so -type f -print -quit)"
+          test -s "$PROXY"
+          "$BIN/llvm-nm" --defined-only "$PROXY" > "$RUNNER_TEMP/vulkan-proxy-symbols.txt"
+          if grep -Ei 'resolve_linker_symbols|linkernsbypass|adrenotools_' "$RUNNER_TEMP/vulkan-proxy-symbols.txt"; then
+            echo "Unexpected legacy linker code in system-only Vulkan proxy"; exit 1
+          fi
+          "$BIN/llvm-nm" -D --defined-only "$PROXY" > "$RUNNER_TEMP/vulkan-proxy-exports.txt"
+          grep -F 'Java_com_libertyrecomp_DriverBridge_nativeSupportsCustomDrivers' "$RUNNER_TEMP/vulkan-proxy-exports.txt"
+          for lib in libvulkan.so libmain_hook.so libhook_impl.so libc11_threads_compat.so; do
+            src="$(find out/build/android-driver-proxy -name "$lib" -type f -print -quit)"
+            test -n "$src" && test -s "$src"
+            "$BIN/llvm-strip" --strip-unneeded -o "$STAGE/$lib" "$src"
+          done
+          for src in "$BUILD/glue/gta4-recomp/libmain.so" \
+                     "$BUILD/glue/gta4-recomp/libliberty_install.so" \
+                     "$REX/librexruntime.so" "$REX/librexgpu-gta4-native.so" \
+                     "$REX/librexgpu-xenos.so" "$REX/libSDL3.so"; do
+            test -s "$src"
+            "$BIN/llvm-strip" --strip-unneeded -o "$STAGE/$(basename "$src")" "$src"
+          done
+          cp "$BIN/../sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" "$STAGE/"
+          "$BIN/llvm-nm" -D --defined-only "$STAGE/libmain.so" > "$RUNNER_TEMP/libmain-exports.txt"
+          grep -E ' SDL_main$' "$RUNNER_TEMP/libmain-exports.txt"
+          for so in "$STAGE"/*.so; do
+            "$BIN/llvm-readelf" -h "$so" | grep -q AArch64
+            for need in $("$BIN/llvm-readelf" -d "$so" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'); do
+              case "$need" in
+                libc.so|libm.so|libdl.so|liblog.so|libandroid.so|libvulkan.so|libEGL.so|libGLESv2.so|libGLESv3.so|libOpenSLES.so|libaaudio.so|libz.so|libmediandk.so|libnativewindow.so|libjnigraphics.so) ;;
+                *) test -s "$STAGE/$need" || { echo "$(basename "$so") needs missing $need"; exit 1; } ;;
+              esac
+            done
+          done
+          ls -lh "$STAGE"
+          sha256sum "$STAGE"/*.so > pixel-shader-diagnostics/apk-native-sha256.txt
+      - name: Stage Android resources and assemble debug-signed APK
+        run: |
+          set -euo pipefail
+          RES="$PWD/os/android/app/src/main/assets/Resources"
+          mkdir -p "$RES/button_prompts"
+          cp -r LibertyRecompLib/font_atlases "$RES/"
+          cp -r LibertyRecompLib/private/button_prompts/. "$RES/button_prompts/"
+          if test -f LibertyRecompLib/aes_key.bin; then cp LibertyRecompLib/aes_key.bin "$RES/"; fi
+          java -version
+          sdkmanager --install "build-tools;35.0.0" >/dev/null
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > os/android/local.properties
+          cd os/android
+          bash ./gradlew --no-daemon --stacktrace :app:assembleDebug
+      - name: Verify and export installable APK
+        run: |
+          set -euo pipefail
+          APK="$PWD/os/android/app/build/outputs/apk/debug/app-debug.apk"
+          TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          test -s "$APK"
+          "$TOOLS/apksigner" verify --verbose --print-certs "$APK" | tee pixel-shader-diagnostics/apk-signing.txt
+          "$TOOLS/zipalign" -c -P 16 -v 4 "$APK" > pixel-shader-diagnostics/apk-alignment.txt
+          python3 - "$APK" <<'PY'
+          import pathlib, sys, zipfile
+          apk = pathlib.Path(sys.argv[1])
+          required = {"libmain.so", "libliberty_install.so", "librexruntime.so",
+                      "librexgpu-gta4-native.so", "librexgpu-xenos.so", "libSDL3.so",
+                      "libc++_shared.so", "libvulkan.so", "libmain_hook.so",
+                      "libhook_impl.so", "libc11_threads_compat.so"}
+          with zipfile.ZipFile(apk) as archive:
+              names = set(archive.namelist())
+              missing = {"lib/arm64-v8a/" + lib for lib in required} - names
+              if missing or "AndroidManifest.xml" not in names or "classes.dex" not in names:
+                  raise SystemExit(f"Incomplete APK: {sorted(missing)}")
+              print(f"Verified {len(required)} ARM64 native libraries, manifest and DEX.")
+          PY
+          mkdir -p pixel-apk-artifact
+          cp "$APK" pixel-apk-artifact/LibertyRecomp-Pixel-debug.apk
+          (cd pixel-apk-artifact && sha256sum *.apk > SHA256SUMS)
+      - name: Upload installable Pixel APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: liberty-recomp-pixel-apk
+          path: pixel-apk-artifact/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Export shader diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-shader-diagnostics
+          path: pixel-shader-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Export configure diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-renderer-configure-diagnostics
+          path: |
+            out/build/pixel-android-renderer/CMakeCache.txt
+            out/build/pixel-android-renderer/CMakeFiles/CMakeConfigureLog.yaml
+            out/build/pixel-android-renderer/compile_commands.json
+          if-no-files-found: ignore
           retention-days: 7

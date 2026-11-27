@@ -203,11 +203,22 @@ if(REXGLUE_USE_VULKAN)
     endif()
     set(GTA4_NATIVE_DXC_ROOT
         "${LIBERTY_RECOMP_WORKSPACE_ROOT}/tools/XenosRecomp/thirdparty/dxc-bin")
+    set(GTA4_NATIVE_DXC_EXECUTABLE "" CACHE FILEPATH
+        "Explicit host DXC executable for native GTA IV shader overrides")
     set(GTA4_NATIVE_DXC_LIBRARY_PATH "" CACHE PATH
         "Directory containing a DXC shared library compatible with gta4-native shader overrides")
     set(GTA4_NATIVE_SHADER_COMMON
         "${GTA4_NATIVE_SHADER_OVERRIDE_ROOT}/xenos_shader_common.h")
-    if(CMAKE_HOST_WIN32)
+    if(GTA4_NATIVE_DXC_EXECUTABLE)
+        if(NOT EXISTS "${GTA4_NATIVE_DXC_EXECUTABLE}")
+            message(FATAL_ERROR "Configured host DXC does not exist: ${GTA4_NATIVE_DXC_EXECUTABLE}")
+        endif()
+        if(GTA4_NATIVE_DXC_LIBRARY_PATH AND NOT IS_DIRECTORY "${GTA4_NATIVE_DXC_LIBRARY_PATH}")
+            message(FATAL_ERROR "Configured DXC library directory does not exist: ${GTA4_NATIVE_DXC_LIBRARY_PATH}")
+        endif()
+        set(GTA4_NATIVE_DXC "${GTA4_NATIVE_DXC_EXECUTABLE}")
+        message(STATUS "Using explicit host DXC: ${GTA4_NATIVE_DXC}")
+    elseif(CMAKE_HOST_WIN32)
         # The bundled DXC 1.8 crashes on the Bink pixel shaders here as well
         # (see the macOS branch). GTA4_NATIVE_DXC_LIBRARY_PATH may name the bin
         # directory of a newer DXC release.

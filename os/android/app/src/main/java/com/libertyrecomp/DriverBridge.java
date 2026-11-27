@@ -31,9 +31,8 @@ import java.util.zip.ZipFile;
  * is therefore always loaded and always initialized: "turnip" hands it the
  * bundled Mesa Turnip build, "system" forwards to /system/lib64/libvulkan.so.</p>
  *
- * <p>Turnip is the default: the stock Adreno 650 driver exposes a Vulkan 1.1
- * device and the native renderer needs 1.2. {@code driver.txt} next to
- * {@code args.txt} selects "system" instead.</p>
+ * <p>Pixel/system-only builds use the device Vulkan driver regardless of
+ * driver.txt. Legacy custom-driver builds can select Turnip or system.</p>
  *
  * <p>Ported from andrewnakas/skate3-android (MIT), which took it from
  * AlanConstantino/skate3-pocket; native/PROVENANCE.md has the details.</p>
@@ -62,6 +61,8 @@ final class DriverBridge {
 
     private DriverBridge() {}
 
+    private static native boolean nativeSupportsCustomDrivers();
+
     static native String nativeInit(String nativeLibraryDir, String internalDriverDir,
                                     String driverFilename, boolean custom,
                                     boolean allowSystemFallback);
@@ -75,6 +76,11 @@ final class DriverBridge {
             return sStatus;
         }
         String nativeDir = context.getApplicationInfo().nativeLibraryDir;
+        System.load(new File(nativeDir, "libvulkan.so").getAbsolutePath());
+        if (!nativeSupportsCustomDrivers()) {
+            Log.i(TAG, "System-only Vulkan proxy: ignoring custom driver selection " + mode);
+            mode = SYSTEM;
+        }
         // The bundled Turnip drives only Adreno (KGSL) GPUs. On anything else
         // (Mali, for example) go straight to the device's own driver instead
         // of loading one that cannot work. An imported driver is the user's
@@ -111,7 +117,6 @@ final class DriverBridge {
         if (!driverDir.isDirectory() && !driverDir.mkdirs()) {
             Log.w(TAG, "cannot create " + driverDir);
         }
-        System.load(new File(nativeDir, "libvulkan.so").getAbsolutePath());
         // A custom driver that cannot run this GPU falls back to the system
         // driver; an explicit "system" choice has nothing to fall back to.
         String status = nativeInit(nativeDir, driverDir.getAbsolutePath(),
