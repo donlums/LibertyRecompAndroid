@@ -14,7 +14,15 @@ add_subdirectory(vendor/libadrenotools)
 add_library(vulkan SHARED driver_proxy.cpp)
 target_compile_definitions(vulkan PRIVATE VK_NO_PROTOTYPES)
 target_compile_options(vulkan PRIVATE -Wall -Wextra -Werror -fvisibility=hidden)
-target_link_libraries(vulkan PRIVATE adrenotools log dl)
+# Pixel/modern Android builds must not link the legacy private-linker
+# constructor at all. Keep custom drivers an explicit legacy build option.
+option(LIBERTY_ANDROID_SYSTEM_VULKAN_ONLY "Build without private linker/custom driver support" ON)
+target_link_libraries(vulkan PRIVATE log dl)
+if(LIBERTY_ANDROID_SYSTEM_VULKAN_ONLY)
+  target_compile_definitions(vulkan PRIVATE LIBERTY_SYSTEM_VULKAN_ONLY=1)
+else()
+  target_link_libraries(vulkan PRIVATE adrenotools)
+endif()
 target_link_options(vulkan PRIVATE
   "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/exports.map"
   "-Wl,-Bsymbolic-functions"

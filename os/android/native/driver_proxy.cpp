@@ -2,7 +2,9 @@
 // It neither patches libmain.so nor hooks dlopen/dlsym process-wide.
 #include <jni.h>
 #include <android/log.h>
+#if !defined(LIBERTY_SYSTEM_VULKAN_ONLY)
 #include <adrenotools/driver.h>
+#endif
 #include <vulkan/vulkan.h>
 #include <dlfcn.h>
 #include <sys/stat.h>
@@ -315,6 +317,15 @@ bool Probe(std::string& devices, std::string& error) {
 
 EXPORT jint JNICALL JNI_OnLoad(JavaVM*, void*) { return JNI_VERSION_1_6; }
 
+EXPORT jboolean JNICALL Java_com_libertyrecomp_DriverBridge_nativeSupportsCustomDrivers(
+    JNIEnv*, jclass) {
+#if defined(LIBERTY_SYSTEM_VULKAN_ONLY)
+  return JNI_FALSE;
+#else
+  return JNI_TRUE;
+#endif
+}
+
 EXPORT jstring JNICALL Java_com_libertyrecomp_DriverBridge_nativeInit(
     JNIEnv* env, jclass, jstring native_dir_value, jstring driver_dir_value,
     jstring filename_value, jboolean custom_value, jboolean fallback_value) {
@@ -375,9 +386,13 @@ EXPORT jstring JNICALL Java_com_libertyrecomp_DriverBridge_nativeInit(
         __android_log_print(ANDROID_LOG_WARN, kTag,
                             "could not read this device's own driver identity before loading the custom one");
       }
+#if defined(LIBERTY_SYSTEM_VULKAN_ONLY)
+      error = "Custom Vulkan drivers are disabled in this system-driver build";
+#else
       g_loader = adrenotools_open_libvulkan(RTLD_NOW | RTLD_LOCAL, ADRENOTOOLS_DRIVER_CUSTOM,
           driver_dir.c_str(), native_dir.c_str(), driver_dir.c_str(), filename.c_str(), nullptr, nullptr);
       if (!g_loader) error = "libadrenotools could not initialize the selected custom driver";
+#endif
     }
   } else if (error.empty()) {
     // An absolute system path cannot resolve back to this app's proxy by SONAME.

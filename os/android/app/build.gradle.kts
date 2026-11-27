@@ -26,8 +26,8 @@ android {
         // 28: ASharedMemory (26) for guest memory and AAudio (27) for audio.
         minSdk        = 29
         targetSdk     = 35
-        versionCode   = 18
-        versionName   = "0.5.9.3"
+        versionCode   = 20
+        versionName   = "0.5.9.5-powervr-test"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
