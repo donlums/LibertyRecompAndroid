@@ -247,27 +247,7 @@ jobs:
           done
           cp "$BIN/../sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" "$STAGE/"
           "$BIN/llvm-nm" -D --defined-only "$STAGE/libmain.so" > "$RUNNER_TEMP/libmain-exports.txt"
-          grep -E ' SDL_main
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pixel-shader-diagnostics
-          path: pixel-shader-diagnostics/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Export configure diagnostics on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pixel-renderer-configure-diagnostics
-          path: |
-            out/build/pixel-android-renderer/CMakeCache.txt
-            out/build/pixel-android-renderer/CMakeFiles/CMakeConfigureLog.yaml
-            out/build/pixel-android-renderer/compile_commands.json
-          if-no-files-found: ignore
-          retention-days: 7
- "$RUNNER_TEMP/libmain-exports.txt"
+          grep -E ' SDL_main$' "$RUNNER_TEMP/libmain-exports.txt"
           for so in "$STAGE"/*.so; do
             "$BIN/llvm-readelf" -h "$so" | grep -q AArch64
             for need in $("$BIN/llvm-readelf" -d "$so" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'); do
