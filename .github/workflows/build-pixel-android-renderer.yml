@@ -8,6 +8,13 @@ on:
       - "glue/rexglue-sdk-main/src/graphics/gta4_native/**"
       - "glue/rexglue-sdk-main/src/graphics/CMakeLists.txt"
       - ".github/workflows/build-pixel-android-renderer.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "glue/rexglue-sdk-main/src/graphics/gta4_native/**"
+      - "glue/rexglue-sdk-main/src/graphics/CMakeLists.txt"
+      - ".github/workflows/build-pixel-android-renderer.yml"
   workflow_dispatch:
 
 permissions:
