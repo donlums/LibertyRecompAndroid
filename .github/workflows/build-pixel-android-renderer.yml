@@ -232,8 +232,17 @@ jobs:
           cmake -S os/android/native -B out/build/android-driver-proxy -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_static \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLIBERTY_ANDROID_SYSTEM_VULKAN_ONLY=ON
           cmake --build out/build/android-driver-proxy --parallel 2
+          PROXY="$(find out/build/android-driver-proxy -name libvulkan.so -type f -print -quit)"
+          test -s "$PROXY"
+          "$BIN/llvm-nm" --defined-only "$PROXY" > "$RUNNER_TEMP/vulkan-proxy-symbols.txt"
+          if grep -Ei 'resolve_linker_symbols|linkernsbypass|adrenotools_' "$RUNNER_TEMP/vulkan-proxy-symbols.txt"; then
+            echo "Unexpected legacy linker code in system-only Vulkan proxy"; exit 1
+          fi
+          "$BIN/llvm-nm" -D --defined-only "$PROXY" > "$RUNNER_TEMP/vulkan-proxy-exports.txt"
+          grep -F 'Java_com_libertyrecomp_DriverBridge_nativeSupportsCustomDrivers' "$RUNNER_TEMP/vulkan-proxy-exports.txt"
           for lib in libvulkan.so libmain_hook.so libhook_impl.so libc11_threads_compat.so; do
             src="$(find out/build/android-driver-proxy -name "$lib" -type f -print -quit)"
             test -n "$src" && test -s "$src"

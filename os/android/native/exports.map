@@ -2,6 +2,7 @@
   global:
     JNI_OnLoad;
     Java_com_libertyrecomp_DriverBridge_nativeInit;
+    Java_com_libertyrecomp_DriverBridge_nativeSupportsCustomDrivers;
     Java_com_libertyrecomp_DriverBridge_nativeStatus;
     vkGetInstanceProcAddr;
     vkGetDeviceProcAddr;
