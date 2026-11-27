@@ -22,7 +22,7 @@ permissions:
 jobs:
   native-android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 300
     env:
       NDK_VERSION: "29.0.14206865"
     steps:
@@ -205,6 +205,125 @@ jobs:
           name: gta4-native-arm64-index-binding-cache
           path: pixel-renderer-artifact/
           retention-days: 7
+
+      - name: Build full matching Android game runtime
+        run: |
+          set -euo pipefail
+          df -h .
+          free -h
+          GAME="$PWD/glue/rexglue-sdk-main/gta4-recomp"
+          python3 "$GAME/tools/direct_calls.py" undo
+          python3 "$GAME/tools/check_hack_registry.py"
+          # Same CMake tree and NDK as the validated renderer above.
+          # Limit concurrent guest translation units to avoid runner OOM.
+          cmake --build out/build/pixel-android-renderer --target LibertyRecomp --parallel 2
+          "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" --defined-only \
+            out/build/pixel-android-renderer/glue/gta4-recomp/libmain.so > "$RUNNER_TEMP/libmain-symbols.txt"
+          python3 "$GAME/tools/direct_calls.py" check "$RUNNER_TEMP/libmain-symbols.txt"
+      - name: Build Vulkan driver proxy and stage matching native libraries
+        run: |
+          set -euo pipefail
+          BUILD="$PWD/out/build/pixel-android-renderer"
+          REX="$PWD/glue/rexglue-sdk-main/out/linux-arm64"
+          STAGE="$PWD/os/android/app/src/main/jniLibs/arm64-v8a"
+          BIN="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          mkdir -p "$STAGE"
+          cmake -S os/android/native -B out/build/android-driver-proxy -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build out/build/android-driver-proxy --parallel 2
+          for lib in libvulkan.so libmain_hook.so libhook_impl.so libc11_threads_compat.so; do
+            src="$(find out/build/android-driver-proxy -name "$lib" -type f -print -quit)"
+            test -n "$src" && test -s "$src"
+            "$BIN/llvm-strip" --strip-unneeded -o "$STAGE/$lib" "$src"
+          done
+          for src in "$BUILD/glue/gta4-recomp/libmain.so" \
+                     "$BUILD/glue/gta4-recomp/libliberty_install.so" \
+                     "$REX/librexruntime.so" "$REX/librexgpu-gta4-native.so" \
+                     "$REX/librexgpu-xenos.so" "$REX/libSDL3.so"; do
+            test -s "$src"
+            "$BIN/llvm-strip" --strip-unneeded -o "$STAGE/$(basename "$src")" "$src"
+          done
+          cp "$BIN/../sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" "$STAGE/"
+          "$BIN/llvm-nm" -D --defined-only "$STAGE/libmain.so" > "$RUNNER_TEMP/libmain-exports.txt"
+          grep -E ' SDL_main
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-shader-diagnostics
+          path: pixel-shader-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Export configure diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-renderer-configure-diagnostics
+          path: |
+            out/build/pixel-android-renderer/CMakeCache.txt
+            out/build/pixel-android-renderer/CMakeFiles/CMakeConfigureLog.yaml
+            out/build/pixel-android-renderer/compile_commands.json
+          if-no-files-found: ignore
+          retention-days: 7
+ "$RUNNER_TEMP/libmain-exports.txt"
+          for so in "$STAGE"/*.so; do
+            "$BIN/llvm-readelf" -h "$so" | grep -q AArch64
+            for need in $("$BIN/llvm-readelf" -d "$so" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'); do
+              case "$need" in
+                libc.so|libm.so|libdl.so|liblog.so|libandroid.so|libvulkan.so|libEGL.so|libGLESv2.so|libGLESv3.so|libOpenSLES.so|libaaudio.so|libz.so|libmediandk.so|libnativewindow.so|libjnigraphics.so) ;;
+                *) test -s "$STAGE/$need" || { echo "$(basename "$so") needs missing $need"; exit 1; } ;;
+              esac
+            done
+          done
+          ls -lh "$STAGE"
+          sha256sum "$STAGE"/*.so > pixel-shader-diagnostics/apk-native-sha256.txt
+      - name: Stage Android resources and assemble debug-signed APK
+        run: |
+          set -euo pipefail
+          RES="$PWD/os/android/app/src/main/assets/Resources"
+          mkdir -p "$RES/button_prompts"
+          cp -r LibertyRecompLib/font_atlases "$RES/"
+          cp -r LibertyRecompLib/private/button_prompts/. "$RES/button_prompts/"
+          if test -f LibertyRecompLib/aes_key.bin; then cp LibertyRecompLib/aes_key.bin "$RES/"; fi
+          java -version
+          sdkmanager --install "build-tools;35.0.0" >/dev/null
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > os/android/local.properties
+          cd os/android
+          bash ./gradlew --no-daemon --stacktrace :app:assembleDebug
+      - name: Verify and export installable APK
+        run: |
+          set -euo pipefail
+          APK="$PWD/os/android/app/build/outputs/apk/debug/app-debug.apk"
+          TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          test -s "$APK"
+          "$TOOLS/apksigner" verify --verbose --print-certs "$APK" | tee pixel-shader-diagnostics/apk-signing.txt
+          "$TOOLS/zipalign" -c -P 16 -v 4 "$APK" > pixel-shader-diagnostics/apk-alignment.txt
+          python3 - "$APK" <<'PY'
+          import pathlib, sys, zipfile
+          apk = pathlib.Path(sys.argv[1])
+          required = {"libmain.so", "libliberty_install.so", "librexruntime.so",
+                      "librexgpu-gta4-native.so", "librexgpu-xenos.so", "libSDL3.so",
+                      "libc++_shared.so", "libvulkan.so", "libmain_hook.so",
+                      "libhook_impl.so", "libc11_threads_compat.so"}
+          with zipfile.ZipFile(apk) as archive:
+              names = set(archive.namelist())
+              missing = {"lib/arm64-v8a/" + lib for lib in required} - names
+              if missing or "AndroidManifest.xml" not in names or "classes.dex" not in names:
+                  raise SystemExit(f"Incomplete APK: {sorted(missing)}")
+              print(f"Verified {len(required)} ARM64 native libraries, manifest and DEX.")
+          PY
+          mkdir -p pixel-apk-artifact
+          cp "$APK" pixel-apk-artifact/LibertyRecomp-Pixel-debug.apk
+          (cd pixel-apk-artifact && sha256sum *.apk > SHA256SUMS)
+      - name: Upload installable Pixel APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: liberty-recomp-pixel-apk
+          path: pixel-apk-artifact/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Export shader diagnostics
         if: always()
