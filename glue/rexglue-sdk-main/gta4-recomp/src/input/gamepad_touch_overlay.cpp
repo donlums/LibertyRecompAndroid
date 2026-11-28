@@ -1,4 +1,5 @@
 #include "input/gamepad_touch_overlay.h"
+#include "input/context_touch_context.h"
 
 #include <algorithm>
 #include <array>
@@ -54,6 +55,7 @@ struct Finger {
 struct State {
   std::mutex mutex;
   bool visible = false;
+  bool cutscene = false;
   std::array<Control, kControlCount> controls{};
   std::array<bool, kControlCount> held{};
   // Sticks float: the centre is where the finger came down.
@@ -120,8 +122,18 @@ std::array<Control, kControlCount> BuildLayout(float w, float h) {
   return c;
 }
 
+// Keep the film visible and expose only native controller buttons.
+std::array<Control, kControlCount> BuildCutsceneLayout(float w, float h) {
+  std::array<Control, kControlCount> c{};
+  const float r = 0.064f * h;
+  c[0] = {Kind::kButton, w - 0.12f*h, 0.84f*h, r, rex::input::X_INPUT_GAMEPAD_A, 0, "A"};
+  c[1] = {Kind::kButton, w - 0.29f*h, 0.84f*h, r, rex::input::X_INPUT_GAMEPAD_B, 0, "B"};
+  c[2] = {Kind::kButton, w - 0.12f*h, 0.12f*h, r, rex::input::X_INPUT_GAMEPAD_START, 0, "START"};
+  return c;
+}
+
 // The button under a finger, or the stick of that half of the screen.
-int HitTest(const std::array<Control, kControlCount>& controls, float px, float py, float w) {
+int HitTest(const std::array<Control, kControlCount>& controls, float px, float py, float w, bool cutscene) {
   int best = -1;
   float best_distance = FLT_MAX;
   for (size_t i = 0; i < controls.size(); ++i) {
@@ -134,7 +146,7 @@ int HitTest(const std::array<Control, kControlCount>& controls, float px, float 
       best = int(i);
     }
   }
-  if (best >= 0) return best;
+  if (best >= 0 || cutscene) return best;
   return int(px < w * 0.5f ? kLeftStick : kRightStick);
 }
 
@@ -203,6 +215,13 @@ bool GamepadTouchLayoutSelected() noexcept {
   return REXCVAR_GET(gta4_touch_layout) == "gamepad";
 }
 
+bool CutsceneTouchLayoutActive() noexcept {
+  if (GamepadTouchLayoutSelected()) return false;
+  const auto context = GetTouchContextSnapshot();
+  return context.epoch != 0 && context.cutscene && !context.loading &&
+         !context.frontend && !context.map && rex::input::TouchControlsVisible();
+}
+
 bool GamepadTouchOverlayVisible() noexcept {
   if (!GamepadTouchLayoutSelected()) return false;
   std::lock_guard lock(state().mutex);
@@ -212,18 +231,27 @@ bool GamepadTouchOverlayVisible() noexcept {
 bool UpdateAndDrawGamepadTouchOverlay(ImDrawList* draw, ImFont* font, float font_size,
                                       float width, float height) noexcept {
   auto& s = state();
-  const bool visible = GamepadTouchLayoutSelected() && rex::input::TouchControlsVisible() &&
+  const bool cutscene = CutsceneTouchLayoutActive();
+  const bool visible = (GamepadTouchLayoutSelected() || cutscene) && rex::input::TouchControlsVisible() &&
                        width > 0.0f && height > 0.0f;
   std::lock_guard lock(s.mutex);
   if (!visible) {
     s.visible = false;
+    s.cutscene = false;
     s.fingers.clear();
     s.held.fill(false);
     s.stick_x[0] = s.stick_x[1] = s.stick_y[0] = s.stick_y[1] = 0.0f;
     return false;
   }
+  const bool entering_cutscene = cutscene && (!s.visible || !s.cutscene);
+  if (s.cutscene != cutscene) {
+    s.fingers.clear();
+    s.held.fill(false);
+    s.stick_x[0] = s.stick_x[1] = s.stick_y[0] = s.stick_y[1] = 0.0f;
+  }
   s.visible = true;
-  s.controls = BuildLayout(width, height);
+  s.cutscene = cutscene;
+  s.controls = cutscene ? BuildCutsceneLayout(width, height) : BuildLayout(width, height);
 
   // Every finger currently on the screen, from every touch device.
   std::unordered_map<uint64_t, ImVec2> touches;
@@ -242,6 +270,10 @@ bool UpdateAndDrawGamepadTouchOverlay(ImDrawList* draw, ImFont* font, float font
     SDL_free(devices);
   }
 
+  // Fingers already down when the scene begins must lift before they can skip it.
+  if (entering_cutscene) {
+    for (const auto& [key, position] : touches) { (void)position; s.fingers.emplace(key, Finger{-1}); }
+  }
   for (auto it = s.fingers.begin(); it != s.fingers.end();) {
     it = touches.count(it->first) ? std::next(it) : s.fingers.erase(it);
   }
@@ -259,7 +291,7 @@ bool UpdateAndDrawGamepadTouchOverlay(ImDrawList* draw, ImFont* font, float font
     if (found == s.fingers.end()) {
       // A finger belongs to what it first landed on until it lifts. A stick
       // centres under the finger, kept fully on screen; one finger per stick.
-      int control = HitTest(s.controls, position.x, position.y, width);
+      int control = HitTest(s.controls, position.x, position.y, width, cutscene);
       if (control >= 0 && s.controls[control].kind == Kind::kStick) {
         const auto& stick = s.controls[control];
         if (stick_taken[stick.index]) {
@@ -302,7 +334,7 @@ bool ReadGamepadTouchOverlay(uint32_t user, rex::input::X_INPUT_GAMEPAD* output)
   if (!output || user != 0) return false;
   auto& s = state();
   std::lock_guard lock(s.mutex);
-  if (!s.visible) return false;
+  if (!s.visible || s.cutscene != CutsceneTouchLayoutActive()) return false;
   uint16_t buttons = 0;
   uint8_t triggers[2] = {0, 0};
   for (size_t i = 0; i < s.controls.size(); ++i) {

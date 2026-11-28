@@ -189,15 +189,14 @@ void SDLAudioDriver::SubmitFrame(uint32_t frame_ptr) {
 
   std::memcpy(output_frame, input_frame, frame_samples_ * sizeof(float));
 
-  static uint32_t sdl_submit_count = 0;
-  if (sdl_submit_count < 10) {
-    REXAPU_DEBUG("SDLAudioDriver::SubmitFrame: frame_ptr={:08X} queued_count={}", frame_ptr,
-                 frames_queued_.size() + 1);
-    sdl_submit_count++;
-  }
-
+  static thread_local uint32_t sdl_submit_count = 0;
   {
     std::unique_lock<std::mutex> guard(frames_mutex_);
+    if (sdl_submit_count < 10) {
+      REXAPU_DEBUG("SDLAudioDriver::SubmitFrame: frame_ptr={:08X} queued_count={}", frame_ptr,
+                   frames_queued_.size() + 1);
+      sdl_submit_count++;
+    }
     frames_queued_.push(output_frame);
     PROFILE_BUFFER_QUEUE_DEPTH(static_cast<int64_t>(frames_queued_.size()));
   }
@@ -288,11 +287,11 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
   // Gaps (no guest frame ready, silence played) counted and logged every
   // 10 s with the queue depth, so stutter reports can tell a starved guest
   // producer from an output-side problem.
-  static uint32_t silent_fills = 0;
-  static uint32_t filled = 0;
-  static auto next_report = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  static thread_local uint32_t silent_fills = 0;
+  static thread_local uint32_t filled = 0;
+  static thread_local auto next_report = std::chrono::steady_clock::now() + std::chrono::seconds(10);
   while (additional_amount > 0) {
-    static uint32_t sdl_callback_count = 0;
+    static thread_local uint32_t sdl_callback_count = 0;
     std::unique_lock<std::mutex> guard(driver->frames_mutex_);
     if (const auto now = std::chrono::steady_clock::now(); now >= next_report) {
       if (silent_fills) {
@@ -336,6 +335,10 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
       if (!SDL_PutAudioStreamData(stream, data, len)) {
         REXAPU_ERROR("SDL_PutAudioStreamData() failed: {}", SDL_GetError());
         driver->frames_unused_.push(buffer);
+        // A guest block was dequeued even when the host write failed. Return
+        // its credit or repeated transient errors permanently starve the producer.
+        const bool released = driver->semaphore_->Release(1, nullptr);
+        assert_true(released);
         break;
       }
       driver->frames_unused_.push(buffer);

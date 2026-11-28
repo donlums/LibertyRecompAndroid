@@ -62,12 +62,14 @@ bool ContextTouchOverlay::ResolveIcon(void* context, std::string_view id, Contex
 
 void ContextTouchOverlay::OnDraw(ImGuiIO& io) {
   (void)FlushContextTouchSettings();
-  if (GamepadTouchLayoutSelected()) {
+  if (GamepadTouchLayoutSelected() || CutsceneTouchLayoutActive()) {
     repaint_needed_ = UpdateAndDrawGamepadTouchOverlay(
         ImGui::GetForegroundDrawList(), ImGui::GetFont(), ImGui::GetFontSize(), io.DisplaySize.x,
         io.DisplaySize.y);
     return;
   }
+  // Reset the fallback's held state immediately when contextual gameplay returns.
+  UpdateAndDrawGamepadTouchOverlay(nullptr, nullptr, 0.0f, 0.0f, 0.0f);
   const auto snapshot = GetContextTouchDrawableOverlaySnapshot();
   repaint_needed_ = snapshot.visible && snapshot.layout.mode != ContextTouchMode::kFrontend &&
                     snapshot.layout.mode != ContextTouchMode::kMap;

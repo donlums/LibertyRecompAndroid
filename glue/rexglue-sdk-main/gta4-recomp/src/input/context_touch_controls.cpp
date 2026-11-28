@@ -1283,7 +1283,8 @@ void OnControlReplay(PPCContext&, uint8_t* base, uint32_t control, uint32_t, uin
 
 bool NativePadProvider(uint32_t user, rex::input::X_INPUT_GAMEPAD* output) noexcept {
   if (!output) return false;
-  if (GamepadTouchLayoutSelected()) return ReadGamepadTouchOverlay(user, output);
+  if (GamepadTouchLayoutSelected() || CutsceneTouchLayoutActive())
+    return ReadGamepadTouchOverlay(user, output);
   const bool owned = GTA4_TouchTitleInputOwned();
   const bool active = rex::input::TouchControlsActive();
   std::lock_guard lock(g_runtime.mutex);

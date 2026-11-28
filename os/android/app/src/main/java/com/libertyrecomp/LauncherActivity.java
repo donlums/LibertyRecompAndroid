@@ -1075,6 +1075,10 @@ public class LauncherActivity extends Activity {
                 .setNegativeButton("Cancel", null).show();
     }
 
+    private static boolean isPixel10() {
+        return android.os.Build.MANUFACTURER.equalsIgnoreCase("Google") && android.os.Build.MODEL.contains("Pixel 10");
+    }
+
     private void showPerformanceTestSettings() {
         android.content.SharedPreferences perf = perfTestPreferences();
         android.app.Dialog dialog = new android.app.Dialog(this);
@@ -1099,9 +1103,9 @@ public class LauncherActivity extends Activity {
         panel.setOrientation(LinearLayout.VERTICAL);
 
         android.widget.CheckBox balanced = styledCheck("Pixel balanced (experimental)",
-                "Dynamic draw distance down to 55%, two queued frames and adaptive environment reflections. "
+                "Dynamic draw distance down to 45%, two queued frames, reduced reflection updates and buffered audio. "
                         + "Does not change the Vulkan driver. Overrides conflicting draw-distance settings for this run.",
-                perf.getBoolean(PERF_PIXEL_BALANCED, false));
+                perf.getBoolean(PERF_PIXEL_BALANCED, isPixel10()));
         panel.addView(balanced, matchWrap(dp(10)));
         android.widget.CheckBox drawDistance = styledCheck("Draw distance 0.5",
                 "Fixed half draw distance; the dynamic draw distance is turned off.",
@@ -1265,7 +1269,7 @@ public class LauncherActivity extends Activity {
                 intent.putExtra(LibertyActivity.EXTRA_THERMAL_GUARD,
                         perf.getBoolean(PERF_THERMAL_GUARD, false));
                 intent.putExtra(LibertyActivity.EXTRA_SAFE_MODE, perf.getBoolean(PERF_SAFE_MODE, false));
-                intent.putExtra(LibertyActivity.EXTRA_PIXEL_BALANCED, perf.getBoolean(PERF_PIXEL_BALANCED, false));
+                intent.putExtra(LibertyActivity.EXTRA_PIXEL_BALANCED, perf.getBoolean(PERF_PIXEL_BALANCED, isPixel10()));
                 intent.putExtra(LibertyActivity.EXTRA_WATER_REFLECTION_INTERVAL,
                         perf.getInt(PERF_WATER_REFLECTIONS, 1));
                 intent.putExtra(LibertyActivity.EXTRA_OTHER_REFLECTION_INTERVAL,

@@ -19,6 +19,8 @@ namespace gta4::input {
 
 // gta4_touch_layout is "gamepad".
 bool GamepadTouchLayoutSelected() noexcept;
+// Minimal controller fallback during a confirmed cutscene.
+bool CutsceneTouchLayoutActive() noexcept;
 // Selected and the touch controls are currently shown (touch_controls).
 bool GamepadTouchOverlayVisible() noexcept;
 // Reads the fingers, updates the pad state and draws the overlay. UI thread,

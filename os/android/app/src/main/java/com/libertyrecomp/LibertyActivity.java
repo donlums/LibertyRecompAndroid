@@ -359,7 +359,15 @@ public class LibertyActivity extends SDLActivity {
         if (getIntent() != null && getIntent().getBooleanExtra(EXTRA_PIXEL_BALANCED, false)
                 && !getIntent().getBooleanExtra(EXTRA_SAFE_MODE, false)) {
             setLaunchOption(arguments, "--gta4_dynamic_draw_distance", "true");
-            setLaunchOption(arguments, "--gta4_dynamic_draw_distance_min", "0.55");
+            setLaunchOption(arguments, "--gta4_dynamic_draw_distance_min", "0.45");
+            // Spread reflection work across frames, retaining explicit Off choices.
+            int water = getIntent().getIntExtra(EXTRA_WATER_REFLECTION_INTERVAL, 1);
+            int environment = getIntent().getIntExtra(EXTRA_OTHER_REFLECTION_INTERVAL, 1);
+            setLaunchOption(arguments, "--gta4_native_water_reflection_interval", water == 0 ? "0" : Integer.toString(Math.max(2, Math.min(water, 3))));
+            setLaunchOption(arguments, "--gta4_native_environment_reflection_interval", environment == 0 ? "0" : Integer.toString(Math.max(2, Math.min(environment, 3))));
+            // Normal Android audio path with additional headroom for frame hitches.
+            setLaunchOption(arguments, "--audio_low_latency", "false");
+            setLaunchOption(arguments, "--audio_maxqframes", "48");
             setLaunchOption(arguments, "--gta4_native_max_queued_frames", "2");
             setLaunchOption(arguments, "--gta4_fps_guard", "30");
         }
@@ -373,7 +381,7 @@ public class LibertyActivity extends SDLActivity {
         try {
             List<String> publicArgs = new ArrayList<>();
             for (String arg : mArguments) {
-                if (arg.matches("--(?:gta4_|android_|log_level|diagnostics)[a-zA-Z0-9_]*=[a-zA-Z0-9_.-]+"))
+                if (arg.matches("--(?:gta4_|android_|audio_|log_level|diagnostics)[a-zA-Z0-9_]*=[a-zA-Z0-9_.-]+"))
                     publicArgs.add(arg);
             }
             Files.write(new File(dataRoot, "pixel-effective-args.txt").toPath(), publicArgs, StandardCharsets.UTF_8);
