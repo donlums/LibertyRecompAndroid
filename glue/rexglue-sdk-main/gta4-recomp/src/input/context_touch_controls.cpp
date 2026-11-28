@@ -1160,10 +1160,19 @@ void FreezeLocked(uint64_t epoch) {
       g_runtime.frame_seconds, kReferenceFrameSeconds);
   g_runtime.look_y = g_runtime.look_quantizer_y.Quantize(dy, sensitivity, kLookUnitsPerPixel,
       g_runtime.frame_seconds, kReferenceFrameSeconds);
-  if (IsParachute(g_runtime.layout.mode) &&
-      std::none_of(g_runtime.pointers.begin(), g_runtime.pointers.end(), [](const auto& item) {
-        return item.second.control.kind == ContextTouchControlKind::kRightStick;
-      })) {
+  const bool camera_stick = std::any_of(g_runtime.pointers.begin(), g_runtime.pointers.end(),
+      [](const auto& item) { return !item.second.editing &&
+          item.second.control.action == TouchAction::kNativeRightStick; });
+  const bool any_right_stick = std::any_of(g_runtime.pointers.begin(), g_runtime.pointers.end(),
+      [](const auto& item) { return item.second.control.kind == ContextTouchControlKind::kRightStick; });
+  if (camera_stick) {
+    // Stick deflection is a sustained look request, not a one-off swipe.
+    const double gain = std::clamp(sensitivity, 0.1, 3.0);
+    g_runtime.look_x = static_cast<int32_t>(std::clamp(g_runtime.right_x * gain, -255.0, 255.0));
+    g_runtime.look_y = static_cast<int32_t>(std::clamp(g_runtime.right_y * gain *
+        (g_runtime.preferences.invert_camera_y ? -1.0 : 1.0), -255.0, 255.0));
+  }
+  if (IsParachute(g_runtime.layout.mode) && !any_right_stick) {
     g_runtime.right_x = g_runtime.look_x;
     g_runtime.right_y = g_runtime.look_y;
   }
@@ -1195,8 +1204,12 @@ void FreezeLocked(uint64_t epoch) {
     if (!g_runtime.context.activity.valid || g_runtime.context.activity.native_combat) {
       pad.left_x = NativeAxis(g_runtime.movement_x);
       pad.left_y = NativeAxis(-g_runtime.movement_y);
-      pad.right_x = NativeAxis(g_runtime.right_x);
-      pad.right_y = NativeAxis(-g_runtime.right_y);
+      // Both swipe and stick look reach the native controller decoder. The
+      // existing semantic replay also supplies the requested camera action.
+      const bool normal_camera = g_runtime.layout.mode == ContextTouchMode::kOnFoot ||
+          IsVehicle(g_runtime.layout.mode);
+      pad.right_x = NativeAxis(normal_camera ? g_runtime.look_x : g_runtime.right_x);
+      pad.right_y = NativeAxis(-(normal_camera ? g_runtime.look_y : g_runtime.right_y));
     }
     MergeWeaponSelectionLocked(pad, epoch);
   }

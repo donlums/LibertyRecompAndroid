@@ -107,24 +107,30 @@ public class LibertyActivity extends SDLActivity {
         }
     }
 
+    private android.widget.FrameLayout mSessionOverlay;
+
+    private android.graphics.drawable.GradientDrawable sessionShape(int fill, int stroke, int radius) {
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(fill);
+        shape.setCornerRadius(dp(radius));
+        if (stroke != 0) shape.setStroke(dp(1), stroke);
+        return shape;
+    }
+
     private void addSessionMenu() {
         android.widget.Button menu = new android.widget.Button(this);
-        menu.setText("Menu");
-        menu.setContentDescription("Game menu and return to launcher");
-        menu.setTextSize(12);
-        menu.setAllCaps(false);
-        menu.setTextColor(android.graphics.Color.WHITE);
+        menu.setText("Ⅱ");
+        menu.setContentDescription("Session menu");
+        menu.setTextSize(19);
+        menu.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        menu.setTextColor(0xFFF2F1EC);
         menu.setMinHeight(0);
         menu.setMinimumHeight(0);
         menu.setPadding(0, 0, 0, 0);
-        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(0xB0202020);
-        background.setCornerRadius(dp(18));
-        background.setStroke(dp(1), 0x80FFFFFF);
-        menu.setBackground(background);
+        menu.setBackground(sessionShape(0x88202426, 0x88FFFFFF, 6));
         android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
-                dp(76), dp(44), android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
-        lp.bottomMargin = dp(8);
+                dp(46), dp(38), android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
+        lp.topMargin = dp(6);
         addContentView(menu, lp);
         menu.setOnClickListener(v -> showSessionMenu());
     }
@@ -133,18 +139,74 @@ public class LibertyActivity extends SDLActivity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
-    private void showSessionMenu() {
-        new android.app.AlertDialog.Builder(this)
-                .setTitle("GTA IV")
-                .setItems(new String[]{"Resume game", "Save diagnostics ZIP", "Return to launcher"}, (dialog, which) -> {
-                    if (which == 1) DiagnosticsExport.save(this, mDataRoot);
-                    if (which == 2) new android.app.AlertDialog.Builder(this)
-                            .setTitle("Return to launcher?")
-                            .setMessage("Save your game first. Unsaved progress may be lost.")
-                            .setNegativeButton("Cancel", null)
-                            .setPositiveButton("Return", (d, w) -> finish())
-                            .show();
-                }).show();
+    private android.widget.TextView sessionText(String text, int sp, int color, boolean bold) {
+        android.widget.TextView v = new android.widget.TextView(this);
+        v.setText(text);
+        v.setTextSize(sp);
+        v.setTextColor(color);
+        v.setTypeface(android.graphics.Typeface.create("sans-serif-condensed",
+                bold ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL));
+        return v;
+    }
+
+    private void dismissSessionMenu() {
+        if (mSessionOverlay != null) {
+            android.view.ViewParent parent = mSessionOverlay.getParent();
+            if (parent instanceof android.view.ViewGroup)
+                ((android.view.ViewGroup) parent).removeView(mSessionOverlay);
+            mSessionOverlay = null;
+        }
+    }
+
+    private void sessionRow(android.widget.LinearLayout panel, String label, boolean primary, Runnable action) {
+        android.widget.TextView row = sessionText(label, 19, primary ? 0xFF17191A : 0xFFF2F1EC, true);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), 0, dp(12), 0);
+        row.setBackground(sessionShape(primary ? 0xFFC6D4B9 : 0xFF25292B, 0xFF41474A, 2));
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, dp(44));
+        lp.topMargin = dp(6);
+        panel.addView(row, lp);
+        row.setClickable(true);
+        row.setOnClickListener(v -> action.run());
+    }
+
+    private void showSessionMenu() { showSessionPanel(false); }
+
+    // An in-window overlay, not an Android dialog: the SDL surface retains
+    // window focus and the game stays visible under the dark scrim.
+    private void showSessionPanel(boolean confirmExit) {
+        dismissSessionMenu();
+        android.widget.FrameLayout overlay = new android.widget.FrameLayout(this);
+        overlay.setBackgroundColor(0xA0000000);
+        overlay.setClickable(true);
+        overlay.setOnClickListener(v -> dismissSessionMenu());
+        android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
+        panel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        panel.setPadding(dp(18), dp(14), dp(18), dp(16));
+        panel.setBackground(sessionShape(0xF2181B1D, 0xFF596064, 4));
+        panel.setClickable(true);
+        android.widget.FrameLayout.LayoutParams panelLp = new android.widget.FrameLayout.LayoutParams(
+                Math.min(dp(340), getResources().getDisplayMetrics().widthPixels - dp(32)), -2,
+                android.view.Gravity.CENTER);
+        overlay.addView(panel, panelLp);
+        android.widget.TextView title = sessionText("GRAND THEFT AUTO IV", 25, 0xFFF2F1EC, true);
+        panel.addView(title);
+        android.widget.TextView subtitle = sessionText(confirmExit ? "RETURN TO LIBERTY RECOMPILED?" : "SESSION MENU",
+                12, 0xFFB0B7AC, true);
+        panel.addView(subtitle);
+        if (confirmExit) {
+            android.widget.TextView warning = sessionText("Save your game first. Unsaved progress may be lost.", 15, 0xFFD0D1CE, false);
+            warning.setPadding(0, dp(10), 0, dp(8));
+            panel.addView(warning);
+            sessionRow(panel, "Cancel", true, () -> showSessionPanel(false));
+            sessionRow(panel, "Return to launcher", false, () -> { dismissSessionMenu(); finish(); });
+        } else {
+            sessionRow(panel, "Resume game", true, this::dismissSessionMenu);
+            sessionRow(panel, "Save diagnostics ZIP", false, () -> { dismissSessionMenu(); DiagnosticsExport.save(this, mDataRoot); });
+            sessionRow(panel, "Return to launcher", false, () -> showSessionPanel(true));
+        }
+        mSessionOverlay = overlay;
+        addContentView(overlay, new android.widget.FrameLayout.LayoutParams(-1, -1));
     }
 
     /**
@@ -359,12 +421,19 @@ public class LibertyActivity extends SDLActivity {
         if (getIntent() != null && getIntent().getBooleanExtra(EXTRA_PIXEL_BALANCED, false)
                 && !getIntent().getBooleanExtra(EXTRA_SAFE_MODE, false)) {
             setLaunchOption(arguments, "--gta4_dynamic_draw_distance", "true");
-            setLaunchOption(arguments, "--gta4_dynamic_draw_distance_min", "0.45");
+            setLaunchOption(arguments, "--gta4_dynamic_draw_distance_min", "0.40");
             // Spread reflection work across frames, retaining explicit Off choices.
             int water = getIntent().getIntExtra(EXTRA_WATER_REFLECTION_INTERVAL, 1);
             int environment = getIntent().getIntExtra(EXTRA_OTHER_REFLECTION_INTERVAL, 1);
-            setLaunchOption(arguments, "--gta4_native_water_reflection_interval", water == 0 ? "0" : Integer.toString(Math.max(2, Math.min(water, 3))));
-            setLaunchOption(arguments, "--gta4_native_environment_reflection_interval", environment == 0 ? "0" : Integer.toString(Math.max(2, Math.min(environment, 3))));
+            setLaunchOption(arguments, "--gta4_native_water_reflection_interval", water == 0 ? "0" : "3");
+            setLaunchOption(arguments, "--gta4_native_environment_reflection_interval", environment == 0 ? "0" : "3");
+            // Keep sun shadows enabled but reduce their distance and lower
+            // street population load. Retain explicit shadow-off settings.
+            setLaunchOption(arguments, "--gta4_shadow_distance_scale", "0.75");
+            setLaunchOption(arguments, "--gta4_traffic_density_scale", "0.35");
+            setLaunchOption(arguments, "--gta4_parked_car_density_scale", "0.35");
+            setLaunchOption(arguments, "--gta4_ped_density_scale", "0.35");
+            setLaunchOption(arguments, "--gta4_scenario_ped_density_scale", "0.35");
             // Normal Android audio path with additional headroom for frame hitches.
             setLaunchOption(arguments, "--audio_low_latency", "false");
             setLaunchOption(arguments, "--audio_maxqframes", "48");

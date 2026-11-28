@@ -134,7 +134,16 @@ void DrawContextTouchLayer(ImDrawList* draw, ImFont* font, float font_size,
       const float y = std::clamp(right ? (input ? input->right_y : 0.0f) : (input ? input->movement_y : 0.0f), -255.0f, 255.0f) / 255.0f;
       draw->AddCircleFilled(ImVec2(center.x + x * radius * 0.55f,
                                   center.y + y * radius * 0.55f),
-                            radius * 0.34f, color(255, 255, 255, 210.0f), 32);
+                            radius * 0.34f, color(255, 255, 255, 155.0f), 24);
+      // The thumbstick is already its own icon; keep the grip unobscured.
+      if (control.action == TouchAction::kNativeRightStick) {
+        const char* label = "LOOK";
+        const float size = std::min(font_size, radius * 0.27f);
+        const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, label);
+        draw->AddText(font, size, ImVec2(center.x - extent.x * 0.5f,
+            center.y + radius * 0.48f), color(255,255,255,230.0f), label);
+        continue;
+      }
     }
     if (DrawMobileAction(draw, control, center, radius, color(255,255,255,255.0f))) continue;
     ContextTouchIcon icon;

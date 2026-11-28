@@ -471,7 +471,21 @@ ContextTouchLayout BuildSemanticLayout(ContextTouchMode mode, const ContextTouch
       AddLookSurface(layout, viewport);
       auto& camera = layout.controls[layout.control_count - 1];
       camera.action = A::kCamera;
-      camera.minimum_x = viewport.safe_x;
+      // Free swipe-look outside the buttons, on the camera side of the screen.
+      if (options.left_handed) {
+        camera.minimum_x = viewport.safe_x;
+        camera.maximum_x = cx;
+      } else {
+        camera.minimum_x = cx;
+      }
+      // A visible, independent analogue stick provides continuous camera rotation.
+      // Preserve the separate activity stick and avoid covering the phone.
+      if (!activity_sticks && (mode == ContextTouchMode::kOnFoot || vehicle) &&
+          !options.phone_visible) {
+        add(A::kNativeRightStick, "LOOK", 0, 0,
+            right - edge * 0.43f, bottom - edge * 0.20f,
+            stick_radius * 0.88f, true, K::kRightStick);
+      }
     }
   }
 
@@ -542,6 +556,10 @@ ContextTouchLayout BuildSemanticLayout(ContextTouchMode mode, const ContextTouch
           std::ceil(viewport.safe_height / distance), 1.0f, 128.0f));
       const size_t columns = static_cast<size_t>(std::clamp(
           std::ceil(viewport.safe_width / distance), 1.0f, 128.0f));
+      // First try the compact edge cluster; then fall back to all free space.
+      const bool edge_cluster = !editor_control && !options.phone_visible &&
+          (mode == ContextTouchMode::kOnFoot || vehicle);
+      for (int pass = 0; pass < (edge_cluster ? 2 : 1) && !placed; ++pass)
       for (size_t row = 0; row < rows && !placed; ++row) {
         y = viewport.safe_y + padding + r + float(row) * distance;
         if (y + r > bottom - padding) break;
@@ -556,6 +574,12 @@ ContextTouchLayout BuildSemanticLayout(ContextTouchMode mode, const ContextTouch
           const float final_x = options.left_handed ? viewport.safe_x + right - x : x;
           if (!editor_control && final_x - r < radar_right &&
               y - r < radar_bottom) continue;
+          // Reserve the top-centre Android session-menu button.
+          if (std::abs(final_x - cx) < edge * 0.15f + r &&
+              y - r < viewport.safe_y + edge * 0.11f) continue;
+          // Keep secondary actions near the right edge, not in a row across
+          // the whole screen. Editing retains its full toolbar.
+          if (edge_cluster && pass == 0 && x < right - edge * 0.36f) break;
           if (overlaps_weapon_hud(x, y, r)) continue;
           bool occupied = false;
           for (size_t i = 0; i < layout.control_count; ++i) {

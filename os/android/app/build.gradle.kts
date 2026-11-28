@@ -26,8 +26,8 @@ android {
         // 28: ASharedMemory (26) for guest memory and AAudio (27) for audio.
         minSdk        = 29
         targetSdk     = 35
-        versionCode   = 23
-        versionName   = "0.5.9.8-cutscene-audio-performance"
+        versionCode   = 24
+        versionName   = "0.5.9.9-mobile-camera-menu"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
