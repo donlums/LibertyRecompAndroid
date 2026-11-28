@@ -12,6 +12,7 @@
 #pragma once
 
 #include <mutex>
+#include <array>
 #include <queue>
 #include <stack>
 
@@ -55,6 +56,9 @@ class SDLAudioDriver : public AudioDriver {
   std::queue<float*> frames_queued_ = {};
   std::stack<float*> frames_unused_ = {};
   std::mutex frames_mutex_ = {};
+  // Per-stream ramp state, protected by frames_mutex_.
+  std::array<float, 6> last_output_{};
+  bool output_starved_ = false;
 };
 
 }  // namespace rex::audio::sdl

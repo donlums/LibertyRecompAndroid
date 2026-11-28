@@ -1103,7 +1103,7 @@ public class LauncherActivity extends Activity {
         panel.setOrientation(LinearLayout.VERTICAL);
 
         android.widget.CheckBox balanced = styledCheck("Pixel balanced (experimental)",
-                "Dynamic draw distance down to 40%, two queued frames, reduced reflection updates, shadow distance and population; buffered audio. "
+                "Dynamic draw distance down to 40%, thermal guard, adaptive lock waits, 30 FPS pacing, frame counter and buffered audio. "
                         + "Does not change the Vulkan driver. Overrides conflicting draw-distance settings for this run.",
                 perf.getBoolean(PERF_PIXEL_BALANCED, isPixel10()));
         panel.addView(balanced, matchWrap(dp(10)));

@@ -586,7 +586,11 @@ void ApplyPresentationMode() {
   const auto configured = rex::cvar::GetFlagByName("gta4_present_mode");
   const auto policy = gta4::presentation::ResolveMode(configured == "auto" ? "vsync" : configured);
   if (!policy.explicit_mode) return;
+#if !REX_PLATFORM_ANDROID
   SetStartupFlag("vsync", policy.vsync ? "true" : "false");
+#endif
+  // Android's Vulkan presenter uses the explicit FIFO/immediate/mailbox
+  // flags below; it does not expose the legacy desktop vsync cvar.
   SetStartupFlag("vulkan_prefer_present_mode_fifo", policy.prefer_fifo ? "true" : "false");
   SetStartupFlag("vulkan_allow_present_mode_immediate", policy.immediate ? "true" : "false");
   SetStartupFlag("vulkan_allow_present_mode_mailbox", policy.mailbox ? "true" : "false");

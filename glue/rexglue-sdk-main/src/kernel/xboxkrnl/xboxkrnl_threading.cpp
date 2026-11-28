@@ -22,6 +22,9 @@
 
 #if defined(__ANDROID__) || defined(__linux__)
 #include <pthread.h>
+#if defined(__ANDROID__)
+#include <time.h>
+#endif
 #endif
 
 #include <rex/chrono/clock.h>
@@ -49,6 +52,9 @@
 REXCVAR_DEFINE_UINT32(kernel_spinlock_spins, 64, "Kernel",
                       "Rounds a contended guest spinlock waits on the CPU (watching the lock "
                       "word) before it starts giving up its time slice; 0 yields at once");
+
+REXCVAR_DEFINE_BOOL(kernel_android_spin_backoff, false, "Kernel",
+                    "Use bounded host sleep for prolonged guest spinlock contention on Android");
 
 namespace rex::kernel::xboxkrnl {
 using namespace rex::system;
@@ -1063,9 +1069,14 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock, bool change_i
   // likely preempted, so give the core up as before.
   YieldCounter& counter = CurrentYieldCounter();
   uint32_t rounds = 0;
+  uint64_t retries = 0;
   const uint32_t spin_rounds = REXCVAR_GET(kernel_spinlock_spins);
+#if defined(__ANDROID__)
+  const bool backoff = REXCVAR_GET(kernel_android_spin_backoff);
+  uint32_t yields = 0;
+#endif
   do {
-    counter.spins.fetch_add(1, std::memory_order_relaxed);
+    ++retries;
     if (rounds < spin_rounds) {
       ++rounds;
       for (int i = 0; i < 32 && __atomic_load_n(&lock->prcb_of_owner.value, __ATOMIC_RELAXED);
@@ -1077,9 +1088,20 @@ uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, X_KSPINLOCK* lock, bool change_i
 #endif
       }
     } else {
-      rex::thread::MaybeYield();
+#if defined(__ANDROID__)
+      if (backoff && ++yields % 8 == 0) {
+        // Only contended waiters sleep; owner and guest lock semantics remain unchanged.
+        const timespec pause{0, 50 * 1000};
+        nanosleep(&pause, nullptr);
+      } else
+#endif
+      {
+        rex::thread::MaybeYield();
+      }
     }
   } while (!rex::thread::atomic_cas(0u, self, &lock->prcb_of_owner.value));
+  // Publish once per acquisition instead of an atomic RMW on every retry.
+  counter.spins.fetch_add(retries, std::memory_order_relaxed);
   return old_irql;
 }
 

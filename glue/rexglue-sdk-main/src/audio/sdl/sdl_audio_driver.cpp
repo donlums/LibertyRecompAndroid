@@ -237,6 +237,8 @@ void SDLAudioDriver::Flush() {
 
 void SDLAudioDriver::FlushQueuedFrames() {
   std::unique_lock<std::mutex> guard(frames_mutex_);
+  last_output_.fill(0.0f);
+  output_starved_ = false;
   while (!frames_queued_.empty()) {
     frames_unused_.push(frames_queued_.front());
     frames_queued_.pop();
@@ -308,6 +310,17 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
         sdl_callback_count++;
       }
       std::memset(data, 0, len);
+      const unsigned channels = driver->sdl_device_channels_;
+      // Ramp the last sample to zero over ~1.3 ms rather than introducing
+      // a discontinuity or replaying stale speech/music.
+      if (!driver->output_starved_ && !REXCVAR_GET(audio_mute)) {
+        for (unsigned i = 0; i < 64; ++i)
+          for (unsigned ch = 0; ch < channels && ch < 6; ++ch)
+            data[i * channels + ch] = driver->last_output_[ch] * (63-i) / 64.0f;
+      }
+      driver->output_starved_ = true;
+      driver->last_output_.fill(0.0f);
+      guard.unlock();
       if (!SDL_PutAudioStreamData(stream, data, len)) {
         REXAPU_ERROR("SDL_PutAudioStreamData() failed while filling silence: {}", SDL_GetError());
         break;
@@ -332,17 +345,27 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
             break;
         }
       }
+      const unsigned channels = driver->sdl_device_channels_;
+      if (driver->output_starved_) {
+        for (unsigned i = 0; i < 64; ++i)
+          for (unsigned ch = 0; ch < channels && ch < 6; ++ch)
+            data[i * channels + ch] *= (i+1) / 64.0f;
+      }
+      driver->output_starved_ = false;
+      for (unsigned ch = 0; ch < channels && ch < 6; ++ch)
+        driver->last_output_[ch] = data[(channel_samples_-1)*channels+ch];
+      // Conversion is finished, so the guest producer may reuse this buffer.
+      // Never hold the producer's mutex across the SDL stream write.
+      driver->frames_unused_.push(buffer);
+      guard.unlock();
       if (!SDL_PutAudioStreamData(stream, data, len)) {
         REXAPU_ERROR("SDL_PutAudioStreamData() failed: {}", SDL_GetError());
-        driver->frames_unused_.push(buffer);
         // A guest block was dequeued even when the host write failed. Return
         // its credit or repeated transient errors permanently starve the producer.
         const bool released = driver->semaphore_->Release(1, nullptr);
         assert_true(released);
         break;
       }
-      driver->frames_unused_.push(buffer);
-
       auto ret = driver->semaphore_->Release(1, nullptr);
       assert_true(ret);
       additional_amount -= len;

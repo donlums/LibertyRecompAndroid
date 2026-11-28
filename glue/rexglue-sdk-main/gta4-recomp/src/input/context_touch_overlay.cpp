@@ -1,4 +1,12 @@
 #include "input/context_touch_overlay.h"
+#include <rex/platform.h>
+#if REX_PLATFORM_ANDROID
+#include "../android/android_frame_metrics.h"
+#include <rex/cvar.h>
+#include <cstdio>
+#include <cfloat>
+REXCVAR_DECLARE(bool, gta4_android_frame_metrics);
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -71,6 +79,23 @@ void ContextTouchOverlay::OnDraw(ImGuiIO& io) {
   // Reset the fallback's held state immediately when contextual gameplay returns.
   UpdateAndDrawGamepadTouchOverlay(nullptr, nullptr, 0.0f, 0.0f, 0.0f);
   const auto snapshot = GetContextTouchDrawableOverlaySnapshot();
+#if REX_PLATFORM_ANDROID
+  if (snapshot.visible && !snapshot.editor && REXCVAR_GET(gta4_android_frame_metrics)) {
+    const auto fps = gta4::android_metrics::completed_fps_tenths.load(std::memory_order_relaxed);
+    if (fps) {
+      char label[40];
+      std::snprintf(label, sizeof(label), "GAME %.1f FPS", fps / 10.0);
+      const float size = std::max(11.0f, io.DisplaySize.y * 0.021f);
+      const ImVec2 extent = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, label);
+      const ImVec2 pos(io.DisplaySize.x * 0.5f - extent.x * 0.5f,
+                       io.DisplaySize.y * 0.11f);
+      auto* draw = ImGui::GetForegroundDrawList();
+      draw->AddRectFilled(ImVec2(pos.x-5, pos.y-3), ImVec2(pos.x+extent.x+5,pos.y+extent.y+3),
+                          IM_COL32(0,0,0,140), 3.0f);
+      draw->AddText(ImGui::GetFont(), size, pos, IM_COL32(240,240,240,220), label);
+    }
+  }
+#endif
   repaint_needed_ = snapshot.visible && snapshot.layout.mode != ContextTouchMode::kFrontend &&
                     snapshot.layout.mode != ContextTouchMode::kMap;
   DrawContextTouchOverlay(ImGui::GetForegroundDrawList(), ImGui::GetFont(), ImGui::GetFontSize(),

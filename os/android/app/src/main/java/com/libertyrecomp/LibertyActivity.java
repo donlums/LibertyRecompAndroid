@@ -439,6 +439,12 @@ public class LibertyActivity extends SDLActivity {
             setLaunchOption(arguments, "--audio_maxqframes", "48");
             setLaunchOption(arguments, "--gta4_native_max_queued_frames", "2");
             setLaunchOption(arguments, "--gta4_fps_guard", "30");
+            setLaunchOption(arguments, "--kernel_android_spin_backoff", "true");
+            setLaunchOption(arguments, "--kernel_spinlock_spins", "16");
+            setLaunchOption(arguments, "--gta4_android_frame_metrics", "true");
+            setLaunchOption(arguments, "--android_thermal_guard", "true");
+            setLaunchOption(arguments, "--gta4_present_mode", "vsync");
+            setLaunchOption(arguments, "--gta4_frame_limit", "30");
         }
         if (mDebugLog) {
             setLaunchOption(arguments, "--gta4_profile_native_detailed_cpu", "true");
@@ -450,7 +456,7 @@ public class LibertyActivity extends SDLActivity {
         try {
             List<String> publicArgs = new ArrayList<>();
             for (String arg : mArguments) {
-                if (arg.matches("--(?:gta4_|android_|audio_|log_level|diagnostics)[a-zA-Z0-9_]*=[a-zA-Z0-9_.-]+"))
+                if (arg.matches("--(?:gta4_|android_|audio_|kernel_|log_level|diagnostics)[a-zA-Z0-9_]*=[a-zA-Z0-9_.-]+"))
                     publicArgs.add(arg);
             }
             Files.write(new File(dataRoot, "pixel-effective-args.txt").toPath(), publicArgs, StandardCharsets.UTF_8);
