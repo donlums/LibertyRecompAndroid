@@ -7,6 +7,55 @@
 namespace gta4::input {
 namespace {
 
+bool DrawMobileAction(ImDrawList* draw, const ContextTouchControl& control,
+                      ImVec2 c, float r, ImU32 ink) {
+  using A = TouchAction;
+  const auto pt = [&](float x, float y) { return ImVec2(c.x + x*r, c.y + y*r); };
+  const float stroke = std::max(1.0f, r * 0.085f);
+  switch (control.action) {
+    case A::kAccelerate:
+    case A::kBrake: {
+      const bool gas = control.action == A::kAccelerate;
+      const float half_width = gas ? 0.26f : 0.53f;
+      const float half_height = gas ? 0.48f : 0.29f;
+      draw->AddRect(pt(-half_width,-half_height),pt(half_width,half_height),
+                    ink,r*0.09f,0,stroke);
+      for (int row=0; row<(gas?3:2); ++row)
+        for (int col=0; col<(gas?2:4); ++col)
+          draw->AddCircleFilled(pt(-half_width*0.58f + col*(gas?0.30f:0.205f),
+                                  -half_height*0.58f + row*(gas?0.27f:0.33f)),
+                                r*0.052f,ink,8);
+      return true;
+    }
+    case A::kHandbrake:
+      draw->AddCircle(c,r*0.38f,ink,20,stroke);
+      draw->AddLine(pt(-0.56f,-0.25f),pt(-0.56f,0.25f),ink,stroke);
+      draw->AddLine(pt(0.56f,-0.25f),pt(0.56f,0.25f),ink,stroke);
+      draw->AddLine(pt(0,-0.20f),pt(0,0.07f),ink,stroke);
+      draw->AddCircleFilled(pt(0,0.22f),r*0.045f,ink,8);
+      return true;
+    case A::kHorn:
+      draw->AddRectFilled(pt(-0.48f,-0.17f),pt(-0.12f,0.17f),ink,r*0.035f);
+      draw->AddTriangleFilled(pt(-0.16f,0),pt(0.27f,-0.34f),pt(0.27f,0.34f),ink);
+      draw->AddLine(pt(0.42f,-0.25f),pt(0.57f,-0.4f),ink,stroke);
+      draw->AddLine(pt(0.42f,0.25f),pt(0.57f,0.4f),ink,stroke);
+      return true;
+    case A::kCameraCycle:
+      draw->AddRect(pt(-0.50f,-0.30f),pt(0.20f,0.30f),ink,r*0.08f,0,stroke);
+      draw->AddTriangleFilled(pt(0.20f,0),pt(0.55f,-0.26f),pt(0.55f,0.26f),ink);
+      return true;
+    case A::kAim:
+    case A::kFreeAim:
+      draw->AddCircle(c,r*0.34f,ink,20,stroke);
+      draw->AddLine(pt(-0.53f,0),pt(-0.20f,0),ink,stroke);
+      draw->AddLine(pt(0.20f,0),pt(0.53f,0),ink,stroke);
+      draw->AddLine(pt(0,-0.53f),pt(0,-0.20f),ink,stroke);
+      draw->AddLine(pt(0,0.20f),pt(0,0.53f),ink,stroke);
+      return true;
+    default: return false;
+  }
+}
+
 void DrawContextTouchLayer(ImDrawList* draw, ImFont* font, float font_size,
                              const ContextTouchLayout& layout, const ContextTouchOverlaySnapshot* input, float fade_alpha,
                              float logical_width, float logical_height,
@@ -75,10 +124,10 @@ void DrawContextTouchLayer(ImDrawList* draw, ImFont* font, float font_size,
       }
       continue;
     }
-    draw->AddCircleFilled(center, radius, active ? color(236, 135, 42, 255.0f)
-                                               : color(12, 18, 27, 210.0f), 48);
-    draw->AddCircle(center, radius, color(255, 255, 255, 255.0f), 48,
-                    std::max(1.0f, radius * 0.025f));
+    draw->AddCircleFilled(center, radius, active ? color(225, 225, 225, 175.0f)
+                                               : color(8, 12, 16, 155.0f), 32);
+    draw->AddCircle(center, radius, color(245, 245, 245, 235.0f), 32,
+                    std::max(1.0f, radius * 0.045f));
     if (control.kind == ContextTouchControlKind::kMovementStick || control.kind == ContextTouchControlKind::kRightStick) {
       const bool right = control.kind == ContextTouchControlKind::kRightStick;
       const float x = std::clamp(right ? (input ? input->right_x : 0.0f) : (input ? input->movement_x : 0.0f), -255.0f, 255.0f) / 255.0f;
@@ -87,6 +136,7 @@ void DrawContextTouchLayer(ImDrawList* draw, ImFont* font, float font_size,
                                   center.y + y * radius * 0.55f),
                             radius * 0.34f, color(255, 255, 255, 210.0f), 32);
     }
+    if (DrawMobileAction(draw, control, center, radius, color(255,255,255,255.0f))) continue;
     ContextTouchIcon icon;
     bool has_icon = false;
     if (resolver && control.icon_id[0]) {

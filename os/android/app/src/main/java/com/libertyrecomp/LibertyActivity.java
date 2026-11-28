@@ -84,6 +84,7 @@ public class LibertyActivity extends SDLActivity {
     static final String EXTRA_WATER_REFLECTION_INTERVAL = "perf_water_reflection_interval";
     static final String EXTRA_OTHER_REFLECTION_INTERVAL = "perf_other_reflection_interval";
     static final String EXTRA_PIXEL_BALANCED = "perf_pixel_balanced";
+    static final String EXTRA_TOUCH_LAYOUT = "touch_layout";
     private boolean mDebugLog;
     private File mDebugLogFile;
 
@@ -366,6 +367,8 @@ public class LibertyActivity extends SDLActivity {
             setLaunchOption(arguments, "--gta4_profile_native_detailed_cpu", "true");
             setLaunchOption(arguments, "--gta4_profile_native_detailed_gpu", "true");
         }
+        String touchLayout = getIntent() == null ? null : getIntent().getStringExtra(EXTRA_TOUCH_LAYOUT);
+        setLaunchOption(arguments, "--gta4_touch_layout", "gamepad".equals(touchLayout) ? "gamepad" : "context");
         mArguments = arguments.toArray(new String[0]);
         try {
             List<String> publicArgs = new ArrayList<>();

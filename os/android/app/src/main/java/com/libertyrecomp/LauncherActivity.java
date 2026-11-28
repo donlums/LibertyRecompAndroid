@@ -267,6 +267,12 @@ public class LauncherActivity extends Activity {
         exportParams.topMargin = dp(8);
         left.addView(export, exportParams);
 
+        Button controls = button("Mobile controls", false);
+        controls.setOnClickListener(v -> showMobileControls());
+        LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(dp(260), dp(44));
+        controlsParams.topMargin = dp(8);
+        left.addView(controls, controlsParams);
+
         Button perfTest = button("Performance test settings", false);
         perfTest.setOnClickListener(v -> showPerformanceTestSettings());
         LinearLayout.LayoutParams perfParams = new LinearLayout.LayoutParams(dp(260), dp(44));
@@ -1047,6 +1053,28 @@ public class LauncherActivity extends Activity {
         return getSharedPreferences(PERF_PREFERENCES, Context.MODE_PRIVATE);
     }
 
+    private void showMobileControls() {
+        android.content.SharedPreferences preferences = getSharedPreferences("mobile_controls", MODE_PRIVATE);
+        String selected = preferences.getString("layout", "context");
+        new AlertDialog.Builder(this)
+                .setTitle("Touch controls")
+                .setSingleChoiceItems(new String[]{
+                        "Mobile — automatic walking and driving controls",
+                        "Classic — Xbox-style buttons"
+                }, "gamepad".equals(selected) ? 1 : 0, (dialog, which) -> {
+                    preferences.edit().putString("layout", which == 1 ? "gamepad" : "context").apply();
+                    dialog.dismiss();
+                    toast("Controls saved for next launch");
+                })
+                .setNeutralButton("Help", (dialog, which) -> new AlertDialog.Builder(this)
+                        .setTitle("Mobile controls")
+                        .setMessage("Use the left stick for movement or steering. Drag the open screen to look around. "
+                                + "The right buttons change with your vehicle, weapons and current activity. "
+                                + "Tap the radar to pause. The in-game controls editor is available through the native game's settings.")
+                        .setPositiveButton("OK", null).show())
+                .setNegativeButton("Cancel", null).show();
+    }
+
     private void showPerformanceTestSettings() {
         android.content.SharedPreferences perf = perfTestPreferences();
         android.app.Dialog dialog = new android.app.Dialog(this);
@@ -1226,6 +1254,8 @@ public class LauncherActivity extends Activity {
                 setBusy(false, null);
                 Intent intent = new Intent(this, LibertyActivity.class);
                 if (debugLog) intent.putExtra(LibertyActivity.EXTRA_DEBUG_LOG, true);
+                intent.putExtra(LibertyActivity.EXTRA_TOUCH_LAYOUT,
+                        getSharedPreferences("mobile_controls", MODE_PRIVATE).getString("layout", "context"));
                 android.content.SharedPreferences perf = perfTestPreferences();
                 intent.putExtra(LibertyActivity.EXTRA_SHADOWS_OFF, perf.getBoolean(PERF_SHADOWS_OFF, false));
                 intent.putExtra(LibertyActivity.EXTRA_HALF_DRAW_DISTANCE,
