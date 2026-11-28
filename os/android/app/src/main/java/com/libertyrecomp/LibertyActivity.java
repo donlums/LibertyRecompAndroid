@@ -83,6 +83,7 @@ public class LibertyActivity extends SDLActivity {
     /** Launcher "Performance test settings": reflection intervals in frames. */
     static final String EXTRA_WATER_REFLECTION_INTERVAL = "perf_water_reflection_interval";
     static final String EXTRA_OTHER_REFLECTION_INTERVAL = "perf_other_reflection_interval";
+    static final String EXTRA_PIXEL_BALANCED = "perf_pixel_balanced";
     private boolean mDebugLog;
     private File mDebugLogFile;
 
@@ -92,6 +93,7 @@ public class LibertyActivity extends SDLActivity {
         super.onCreate(savedInstanceState);
         // A controller-driven game sends no touch events for minutes at a time.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        addSessionMenu();
         // Steady clocks the device can hold, instead of peaks followed by
         // throttling (only where the device supports it).
         Intent intent = getIntent();
@@ -102,6 +104,46 @@ public class LibertyActivity extends SDLActivity {
             android.util.Log.w("LibertyRecomp", "sustained performance mode: "
                     + (supported ? "on" : "not supported by this device"));
         }
+    }
+
+    private void addSessionMenu() {
+        android.widget.Button menu = new android.widget.Button(this);
+        menu.setText("Menu");
+        menu.setContentDescription("Game menu and return to launcher");
+        menu.setTextSize(12);
+        menu.setAllCaps(false);
+        menu.setTextColor(android.graphics.Color.WHITE);
+        menu.setMinHeight(0);
+        menu.setMinimumHeight(0);
+        menu.setPadding(0, 0, 0, 0);
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(0xB0202020);
+        background.setCornerRadius(dp(18));
+        background.setStroke(dp(1), 0x80FFFFFF);
+        menu.setBackground(background);
+        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                dp(76), dp(44), android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
+        lp.bottomMargin = dp(8);
+        addContentView(menu, lp);
+        menu.setOnClickListener(v -> showSessionMenu());
+    }
+
+    private int dp(float value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void showSessionMenu() {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("GTA IV")
+                .setItems(new String[]{"Resume game", "Save diagnostics ZIP", "Return to launcher"}, (dialog, which) -> {
+                    if (which == 1) DiagnosticsExport.save(this, mDataRoot);
+                    if (which == 2) new android.app.AlertDialog.Builder(this)
+                            .setTitle("Return to launcher?")
+                            .setMessage("Save your game first. Unsaved progress may be lost.")
+                            .setNegativeButton("Cancel", null)
+                            .setPositiveButton("Return", (d, w) -> finish())
+                            .show();
+                }).show();
     }
 
     /**
@@ -161,7 +203,7 @@ public class LibertyActivity extends SDLActivity {
                 .append(mDriverText == null ? "(none)" : "\"" + mDriverText + "\"")
                 .append(" -> ").append(mDriverMode).append('\n');
         report.append("driver status: ").append(driverStatus).append('\n');
-        if (mDebugLog) {
+        if (mDebugLogFile != null || mDebugLog) {
             report.append("debug log: ")
                     .append(mDebugLogFile != null ? mDebugLogFile.getAbsolutePath() : "could not start")
                     .append('\n');
@@ -291,8 +333,9 @@ public class LibertyActivity extends SDLActivity {
             arguments.removeIf(a -> a.startsWith("--diagnostics") || a.startsWith("--log_level"));
             diagnosticsSet = false;
             arguments.add("--log_level=info");
-            mDebugLogFile = DebugLog.start(dataRoot);
         }
+        // Always capture bounded warning-level logs; debug play opts into info.
+        mDebugLogFile = DebugLog.start(dataRoot);
         if (!diagnosticsSet) {
             arguments.add("--diagnostics=true");
             arguments.add("--diagnostics_categories=logging");
@@ -312,7 +355,28 @@ public class LibertyActivity extends SDLActivity {
                 Log.w(TAG, "bad " + argument);
             }
         }
+        if (getIntent() != null && getIntent().getBooleanExtra(EXTRA_PIXEL_BALANCED, false)
+                && !getIntent().getBooleanExtra(EXTRA_SAFE_MODE, false)) {
+            setLaunchOption(arguments, "--gta4_dynamic_draw_distance", "true");
+            setLaunchOption(arguments, "--gta4_dynamic_draw_distance_min", "0.55");
+            setLaunchOption(arguments, "--gta4_native_max_queued_frames", "2");
+            setLaunchOption(arguments, "--gta4_fps_guard", "30");
+        }
+        if (mDebugLog) {
+            setLaunchOption(arguments, "--gta4_profile_native_detailed_cpu", "true");
+            setLaunchOption(arguments, "--gta4_profile_native_detailed_gpu", "true");
+        }
         mArguments = arguments.toArray(new String[0]);
+        try {
+            List<String> publicArgs = new ArrayList<>();
+            for (String arg : mArguments) {
+                if (arg.matches("--(?:gta4_|android_|log_level|diagnostics)[a-zA-Z0-9_]*=[a-zA-Z0-9_.-]+"))
+                    publicArgs.add(arg);
+            }
+            Files.write(new File(dataRoot, "pixel-effective-args.txt").toPath(), publicArgs, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            Log.w(TAG, "Could not record effective settings", e);
+        }
         String driver = readFirstLine(new File(dataRoot, "driver.txt"));
         mDriverText = driver;
         String lower = driver == null ? "" : driver.toLowerCase(Locale.ROOT);
@@ -326,6 +390,11 @@ public class LibertyActivity extends SDLActivity {
         }
         Log.i(TAG, "data=" + dataRoot + " resources=" + resources
                 + " args=" + mArguments.length + " driver=" + mDriverMode);
+    }
+
+    private static void setLaunchOption(List<String> args, String key, String value) {
+        args.removeIf(a -> a.equals(key) || a.startsWith(key + "="));
+        args.add(key + "=" + value);
     }
 
     /**

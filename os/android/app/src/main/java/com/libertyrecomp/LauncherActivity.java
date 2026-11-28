@@ -261,6 +261,11 @@ public class LauncherActivity extends Activity {
         LinearLayout.LayoutParams debugParams = new LinearLayout.LayoutParams(dp(260), dp(44));
         debugParams.topMargin = dp(10);
         left.addView(debugPlay, debugParams);
+        Button export = button("Save diagnostics ZIP", false);
+        export.setOnClickListener(v -> DiagnosticsExport.save(this, mDataRoot));
+        LinearLayout.LayoutParams exportParams = new LinearLayout.LayoutParams(dp(260), dp(44));
+        exportParams.topMargin = dp(8);
+        left.addView(export, exportParams);
 
         Button perfTest = button("Performance test settings", false);
         perfTest.setOnClickListener(v -> showPerformanceTestSettings());
@@ -268,9 +273,8 @@ public class LauncherActivity extends Activity {
         perfParams.topMargin = dp(10);
         left.addView(perfTest, perfParams);
 
-        TextView debugNote = text("The debug log is saved to Android/data/" + getPackageName()
-                + "/files/" + DebugLog.DIRECTORY + "/. Attach the newest one when you open an issue "
-                + "on GitHub.", 11, R.color.picker_muted);
+        TextView debugNote = text("Save diagnostics ZIP writes directly to Downloads. "
+                + "Debug Play records detailed CPU and GPU timings.", 11, R.color.picker_muted);
         debugNote.setGravity(Gravity.CENTER);
         left.addView(debugNote, matchWrap(dp(6)));
 
@@ -1035,6 +1039,7 @@ public class LauncherActivity extends Activity {
     private static final String PERF_SUSTAINED = "sustained_performance";
     private static final String PERF_THERMAL_GUARD = "thermal_guard";
     private static final String PERF_SAFE_MODE = "safe_mode";
+    private static final String PERF_PIXEL_BALANCED = "pixel_balanced";
     private static final String PERF_WATER_REFLECTIONS = "water_reflection_interval";
     private static final String PERF_OTHER_REFLECTIONS = "other_reflection_interval";
 
@@ -1065,6 +1070,11 @@ public class LauncherActivity extends Activity {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
 
+        android.widget.CheckBox balanced = styledCheck("Pixel balanced (experimental)",
+                "Dynamic draw distance down to 55%, two queued frames and adaptive environment reflections. "
+                        + "Does not change the Vulkan driver. Overrides conflicting draw-distance settings for this run.",
+                perf.getBoolean(PERF_PIXEL_BALANCED, false));
+        panel.addView(balanced, matchWrap(dp(10)));
         android.widget.CheckBox drawDistance = styledCheck("Draw distance 0.5",
                 "Fixed half draw distance; the dynamic draw distance is turned off.",
                 perf.getBoolean(PERF_HALF_DRAW_DISTANCE, false));
@@ -1126,6 +1136,7 @@ public class LauncherActivity extends Activity {
                     .putBoolean(PERF_SUSTAINED, sustained.isChecked())
                     .putBoolean(PERF_THERMAL_GUARD, thermalGuard.isChecked())
                     .putBoolean(PERF_SAFE_MODE, safeMode.isChecked())
+                    .putBoolean(PERF_PIXEL_BALANCED, balanced.isChecked())
                     .putInt(PERF_WATER_REFLECTIONS, checkedInterval(water, 1000))
                     .putInt(PERF_OTHER_REFLECTIONS, checkedInterval(other, 2000))
                     .apply();
@@ -1224,6 +1235,7 @@ public class LauncherActivity extends Activity {
                 intent.putExtra(LibertyActivity.EXTRA_THERMAL_GUARD,
                         perf.getBoolean(PERF_THERMAL_GUARD, false));
                 intent.putExtra(LibertyActivity.EXTRA_SAFE_MODE, perf.getBoolean(PERF_SAFE_MODE, false));
+                intent.putExtra(LibertyActivity.EXTRA_PIXEL_BALANCED, perf.getBoolean(PERF_PIXEL_BALANCED, false));
                 intent.putExtra(LibertyActivity.EXTRA_WATER_REFLECTION_INTERVAL,
                         perf.getInt(PERF_WATER_REFLECTIONS, 1));
                 intent.putExtra(LibertyActivity.EXTRA_OTHER_REFLECTION_INTERVAL,

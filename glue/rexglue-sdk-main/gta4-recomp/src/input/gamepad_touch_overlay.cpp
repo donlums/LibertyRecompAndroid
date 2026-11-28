@@ -41,10 +41,10 @@ constexpr size_t kRightStick = 1;
 constexpr float kDeadZone = 0.12f;
 
 // Grey and see-through, so the overlay does not hide the game.
-constexpr ImU32 kFill = IM_COL32(90, 90, 90, 55);
+constexpr ImU32 kFill = IM_COL32(28, 30, 33, 83);
 constexpr ImU32 kFillHeld = IM_COL32(200, 200, 200, 105);
-constexpr ImU32 kRing = IM_COL32(215, 215, 215, 105);
-constexpr ImU32 kLabel = IM_COL32(230, 230, 230, 150);
+constexpr ImU32 kRing = IM_COL32(220, 225, 232, 145);
+constexpr ImU32 kLabel = IM_COL32(240, 243, 248, 225);
 constexpr ImU32 kKnob = IM_COL32(225, 225, 225, 130);
 
 struct Finger {
@@ -83,22 +83,22 @@ std::array<Control, kControlCount> BuildLayout(float w, float h) {
   const float lx = 0.12f * w;
   // Sticks first: kLeftStick, kRightStick. The right stick has no resting
   // place; it appears where the camera finger lands.
-  add(Kind::kStick, lx, 0.72f * h, 0.105f * h, 0, 0, "L");
+  add(Kind::kStick, lx, 0.76f * h, 0.112f * h, 0, 0, "L");
   add(Kind::kStick, w * 0.75f, 0.60f * h, 0.095f * h, 0, 1, "R");
   // D-pad, right of the left stick.
-  const float dx = lx + 0.26f * h, dy = 0.86f * h, arm = 0.078f * h, dr = 0.042f * h;
+  const float dx = lx + 0.27f * h, dy = 0.81f * h, arm = 0.066f * h, dr = 0.045f * h;
   add(Kind::kArrow, dx, dy - arm, dr, rex::input::X_INPUT_GAMEPAD_DPAD_UP, 0, "");
   add(Kind::kArrow, dx, dy + arm, dr, rex::input::X_INPUT_GAMEPAD_DPAD_DOWN, 1, "");
   add(Kind::kArrow, dx - arm, dy, dr, rex::input::X_INPUT_GAMEPAD_DPAD_LEFT, 2, "");
   add(Kind::kArrow, dx + arm, dy, dr, rex::input::X_INPUT_GAMEPAD_DPAD_RIGHT, 3, "");
   // LT over LB above the left stick, L3 beside LB.
-  const float br = 0.048f * h, small = 0.036f * h;
-  add(Kind::kTrigger, lx, 0.355f * h, br, 0, 0, "LT");
-  add(Kind::kButton, lx, 0.475f * h, br, rex::input::X_INPUT_GAMEPAD_LEFT_SHOULDER, 0, "LB");
-  add(Kind::kButton, lx + 0.115f * h, 0.475f * h, small, rex::input::X_INPUT_GAMEPAD_LEFT_THUMB, 0,
+  const float br = 0.052f * h, small = 0.042f * h;
+  add(Kind::kTrigger, lx - 0.055f * h, 0.48f * h, br, 0, 0, "LT");
+  add(Kind::kButton, lx + 0.072f * h, 0.48f * h, br, rex::input::X_INPUT_GAMEPAD_LEFT_SHOULDER, 0, "LB");
+  add(Kind::kButton, lx + 0.205f * h, 0.53f * h, small, rex::input::X_INPUT_GAMEPAD_LEFT_THUMB, 0,
       "L3");
   // A/B/X/Y diamond in the lower right, with the Xbox 360 letter colours.
-  const float fx = w - 0.52f * h, fy = 0.80f * h, fs = 0.097f * h, fr = 0.052f * h;
+  const float fx = w - 0.30f * h, fy = 0.76f * h, fs = 0.108f * h, fr = 0.057f * h;
   add(Kind::kButton, fx, fy + fs, fr, rex::input::X_INPUT_GAMEPAD_A, 0, "A",
       IM_COL32(110, 205, 80, 170));
   add(Kind::kButton, fx + fs, fy, fr, rex::input::X_INPUT_GAMEPAD_B, 0, "B",
@@ -108,10 +108,10 @@ std::array<Control, kControlCount> BuildLayout(float w, float h) {
   add(Kind::kButton, fx, fy - fs, fr, rex::input::X_INPUT_GAMEPAD_Y, 0, "Y",
       IM_COL32(245, 205, 50, 170));
   // RT over RB at the right edge, R3 beside RB.
-  const float rx = w - 0.17f * h;
-  add(Kind::kTrigger, rx, 0.47f * h, br, 0, 1, "RT");
-  add(Kind::kButton, rx, 0.59f * h, br, rex::input::X_INPUT_GAMEPAD_RIGHT_SHOULDER, 0, "RB");
-  add(Kind::kButton, rx - 0.115f * h, 0.59f * h, small, rex::input::X_INPUT_GAMEPAD_RIGHT_THUMB, 0,
+  const float rx = w - 0.14f * h;
+  add(Kind::kTrigger, rx, 0.46f * h, br, 0, 1, "RT");
+  add(Kind::kButton, rx - 0.13f * h, 0.46f * h, br, rex::input::X_INPUT_GAMEPAD_RIGHT_SHOULDER, 0, "RB");
+  add(Kind::kButton, rx - 0.27f * h, 0.51f * h, small, rex::input::X_INPUT_GAMEPAD_RIGHT_THUMB, 0,
       "R3");
   // Back and Start in the middle of the top edge.
   const float sr = 0.036f * h;
